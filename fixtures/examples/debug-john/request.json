@@ -1,0 +1,14 @@
+{
+  "circuit_version": "0.16.0",
+  "chain_id": 11155111,
+  "service_scope": "vocdoni-passport",
+  "service_subscope": "petition",
+  "current_date": 1775041600,
+  "query": {
+    "nationality": {
+      "disclose": true
+    }
+  },
+  "petition_id": "debug-john",
+  "aggregate_mode": "server"
+}

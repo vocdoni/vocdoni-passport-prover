@@ -1,0 +1,29 @@
+[package]
+name = "acvm-witness-jni"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+description = "Native ACVM witness (compressed stack) for Android JNI — same pipeline as @noir-lang/acvm_js without WebView."
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# Pin to the same Noir stack as the workspace so mobile witness generation stays compatible
+# with the packaged zkPassport circuits.
+acvm.workspace = true
+acir.workspace = true
+bn254_blackbox_solver.workspace = true
+brillig_vm.workspace = true
+noirc_abi.workspace = true
+nargo.workspace = true
+base64.workspace = true
+flate2.workspace = true
+jni.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "acvm_witness_cli"
+path = "src/bin/acvm_witness_cli.rs"

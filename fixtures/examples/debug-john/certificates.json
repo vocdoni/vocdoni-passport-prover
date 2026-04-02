@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "timestamp": 1775041600,
+  "root": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "certificates": [
+    {
+      "country": "ZK",
+      "signature_algorithm": "RSA",
+      "hash_algorithm": "SHA-256",
+      "public_key": {
+        "type": "RSA",
+        "key_size": 2048,
+        "modulus": "0x01",
+        "exponent": 65537
+      },
+      "validity": {
+        "not_before": 0,
+        "not_after": 1893456000
+      },
+      "subject_key_identifier": "0x5406f94b10ad7e7f6f96efd19434574c7235153e"
+    }
+  ],
+  "serialised": []
+}

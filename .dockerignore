@@ -1,0 +1,8 @@
+.git
+target
+target-docker
+outputs
+server-go/.env
+server-go/apk/*.apk
+solidity-check/cache
+solidity-check/out

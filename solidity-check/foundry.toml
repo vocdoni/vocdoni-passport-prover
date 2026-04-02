@@ -1,0 +1,16 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc = "0.8.30"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+fs_permissions = [
+  { access = "read", path = "../outputs/latest/outer" },
+]
+
+[fmt]
+tab_width = 2
+ignore = ["src/ultra-honk-verifiers"]

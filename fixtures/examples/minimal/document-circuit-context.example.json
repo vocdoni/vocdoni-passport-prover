@@ -1,0 +1,20 @@
+{
+  "dsc": {
+    "tbs_bucket": 1000,
+    "key": {
+      "scheme": "ecdsa",
+      "curve": "nist_p256"
+    },
+    "hash": "sha256"
+  },
+  "id_data": {
+    "tbs_bucket": 700,
+    "key": {
+      "scheme": "rsa_pss",
+      "key_bits": 2048
+    },
+    "hash": "sha384"
+  },
+  "dg_hash": "sha256",
+  "outer_circuit": "outer_evm_count_4"
+}

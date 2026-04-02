@@ -1,0 +1,43 @@
+{
+  "status": "pinned-against-live-registry",
+  "source_of_truth_policy": "Pin explicit versions. Do not assume GitHub HEAD equals registry artifacts.",
+  "registry": {
+    "chain_id": 11155111,
+    "rpc_url": "https://eth-sepolia.g.alchemy.com/v2/in6UjcATST36yyKuk83yb1yukKs65u8G",
+    "root_registry": "0x1D0000020038d6E40E1d98e09fA1bb3A7DAA8B70",
+    "certificate_base_url": "https://certificates.zkpassport.id/sepolia",
+    "manifest_base_url": "https://circuits2.zkpassport.id/sepolia/by-version",
+    "artifact_base_url": "https://circuits2.zkpassport.id/sepolia/by-hash",
+    "circuit_version": "0.16.0",
+    "manifest_root": "0x2c0ba69927ad2b3737a57195469c8185f0bcf42ea920cb0ac4963981f23f9e87"
+  },
+  "proving": {
+    "canonical_backend": "ultra_honk",
+    "preferred_fork": "zkpassport/aztec-packages",
+    "noir_version": "1.0.0-beta.14+60ccd48e18ad8ce50d5ecda9baf813b712145051",
+    "bb_version": "2.0.3",
+    "bb_binary_source": "https://github.com/AztecProtocol/aztec-packages/releases/download/v2.0.3/barretenberg-amd64-linux.tar.gz",
+    "inner_oracle_hash": "poseidon2",
+    "outer_evm_oracle_hash": "keccak",
+    "outer_evm_ipa_accumulation": "false",
+    "outer_evm_disable_zk": "true"
+  },
+  "mobile": {
+    "target_mode": "inner-proofs-only",
+    "ffi_surface": [
+      "generate_inner_bundle",
+      "validate_fixture"
+    ]
+  },
+  "server": {
+    "target_mode": "go-api-plus-rust-prover",
+    "integration_mode": "subprocess-first"
+  },
+  "notes": [
+    "This file is a checked-in compatibility contract for v2.",
+    "Manifest root and circuit metadata were verified against the live zkPassport registry on 2026-04-01.",
+    "The registry serves gzip-compressed JSON for manifest and artifact payloads after redirect resolution.",
+    "Outer EVM proofs align with keccak plus disable_zk and without ipa_accumulation for this pinned stack.",
+    "The live registry outer_evm artifacts still require an explicit reproducibility check against the final proving worker."
+  ]
+}
