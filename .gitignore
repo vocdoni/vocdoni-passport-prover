@@ -1,8 +1,116 @@
+# Vocdoni Passport Prover - Git Ignore Configuration
+#
+# Copyright (c) 2024 Vocdoni Association
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# =============================================================================
+# Rust / Cargo
+# =============================================================================
+
 target/
-artifacts/
-snapshots/
+Cargo.lock
+!Cargo.lock
+*.rs.bk
+*.pdb
+
+# =============================================================================
+# Go
+# =============================================================================
+
+# Binaries
+server-go/server
+server-go/vocdoni-passport-server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Go workspace
+go.work
+go.work.sum
+
+# =============================================================================
+# Build Outputs
+# =============================================================================
+
+# Proof artifacts and outputs
 outputs/
-server-go/.env
+out/
+
+# Circuit artifacts (large, downloaded separately)
+artifacts/
+
+# Registry snapshots
+snapshots/
+
+# =============================================================================
+# Development
+# =============================================================================
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+._*
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+# Docker build context
+.docker-build-stamp
+
+# =============================================================================
+# Server Runtime
+# =============================================================================
+
+# APK files (provided at runtime)
 server-go/apk/*.apk
+
+# MongoDB data (if running locally)
+server-go/mongo_data/
+
+# =============================================================================
+# Solidity
+# =============================================================================
+
 solidity-check/cache/
 solidity-check/out/
+solidity-check/node_modules/
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Test fixtures with real data
+fixtures/real/
+
+# Coverage reports
+coverage/
+*.lcov
+
+# =============================================================================
+# Security - NEVER commit these
+# =============================================================================
+
+*.p12
+*.pem
+*.key
+secrets.json
+credentials.json

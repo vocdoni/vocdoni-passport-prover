@@ -1,3 +1,10 @@
+# Vocdoni Passport Prover - Rust Workspace
+#
+# This workspace contains the core proving logic for the Vocdoni Passport system.
+#
+# Copyright (c) 2024 Vocdoni Association
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 [workspace]
 members = [
   "crates/acvm-witness-jni",
@@ -8,26 +15,47 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
-license = "MIT"
 version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+authors = ["Vocdoni Association <info@vocdoni.io>"]
+repository = "https://github.com/vocdoni/vocdoni-passport-prover"
+homepage = "https://github.com/vocdoni/vocdoni-passport-prover"
+description = "Zero-knowledge proof generation for Vocdoni Passport"
+keywords = ["zkpassport", "zero-knowledge", "privacy", "identity", "vocdoni"]
+categories = ["cryptography", "authentication"]
 
 [workspace.dependencies]
+# Error handling
 anyhow = "1"
+thiserror = "2"
+
+# Noir/ACVM dependencies (pinned to zkPassport-compatible version)
 acvm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "acvm", default-features = false, features = ["bn254"] }
 acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "acir", default-features = false, features = ["bn254"] }
 bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "bn254_blackbox_solver" }
-base64 = "0.22"
 brillig_vm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "brillig_vm", default-features = false }
-clap = { version = "4.5", features = ["derive"] }
-flate2 = "1"
-isocountry = "0.3"
-jni = "0.21"
 nargo = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "nargo" }
 noirc_abi = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.14", package = "noirc_abi" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Compression
+flate2 = "1"
+
+# Networking
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+# Utilities
+isocountry = "0.3"
 tempfile = "3"
-thiserror = "2"
 x509-parser = "0.18"
+
+# JNI (for mobile FFI)
+jni = "0.21"

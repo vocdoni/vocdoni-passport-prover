@@ -1,235 +1,227 @@
-# vocdoni-passport-prover
+# Vocdoni Passport Prover
 
-Canonical proving workspace for the `v2` stack.
+Server-side zero-knowledge proof generation for the Vocdoni Passport system.
 
-This repository is the source of truth for:
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![CI](https://github.com/vocdoni/vocdoni-passport-prover/actions/workflows/ci.yml/badge.svg)](https://github.com/vocdoni/vocdoni-passport-prover/actions/workflows/ci.yml)
+[![Docker](https://github.com/vocdoni/vocdoni-passport-prover/actions/workflows/docker.yml/badge.svg)](https://github.com/vocdoni/vocdoni-passport-prover/actions/workflows/docker.yml)
 
-- `prover-cli`
-- proving inputs and aggregation logic
-- zkPassport circuit artifacts and compatibility metadata
-- the zkPassport-compatible `bb` and CRS build recipe
-- helper scripts used by proof aggregation
-- the embedded Go server in `server-go/`
+## Overview
 
-If zkPassport versions change, update and validate this repository first. The server should remain an orchestration layer on top of this workspace.
+This repository is the canonical source for the Vocdoni Passport proving stack. It contains:
 
-## Scope
+- **prover-cli**: Command-line tool for zero-knowledge proof generation
+- **server-go**: HTTP server that orchestrates proof generation and serves the mobile app
+- **acvm-witness-jni**: Native library for witness solving (used by the mobile app)
+- **Circuit artifacts**: Packaged zkPassport circuits and verification keys
 
-This repository owns:
+### Architecture
 
-- fixture loading and analysis
-- circuit resolution
-- witness solving
-- inner proof generation
-- outer proof generation
-- aggregate request handling
-- verifier and Solidity diagnostics
-- the embedded Go server in `server-go/`
+```
+┌─────────────────┐     ┌─────────────────────────────────────┐
+│  Mobile App     │     │  vocdoni-passport-prover            │
+│  (vocdoni-      │────▶│  ┌─────────────┐  ┌──────────────┐  │
+│   passport)     │     │  │  server-go  │──│  prover-cli  │  │
+└─────────────────┘     │  └─────────────┘  └──────────────┘  │
+                        │         │                │          │
+                        │         ▼                ▼          │
+                        │  ┌─────────────┐  ┌──────────────┐  │
+                        │  │   MongoDB   │  │  bb (prover) │  │
+                        │  └─────────────┘  └──────────────┘  │
+                        └─────────────────────────────────────┘
+```
 
-This repository does not own:
+The mobile app generates **inner proofs** on-device and sends them to this server, which generates the **outer proof** that can be verified on-chain.
 
-- QR scanning
-- MRZ camera UX
-- NFC reading on the phone
-- petition storage
+## Quick Start
 
-## Workspace Layout
-
-- `Cargo.toml`
-  Rust workspace root
-- `crates/acvm-witness-jni`
-  native ACVM witness crate consumed by the mobile app
-- `crates/prover-cli`
-  CLI entrypoint
-- `crates/prover-core`
-  proving pipeline and artifact logic
-- `crates/prover-types`
-  stable data structures shared across the pipeline
-- `config/compatibility-matrix.json`
-  pinned compatibility metadata
-- `artifacts/`
-  packaged zkPassport circuits and metadata
-- `scripts/`
-  helper scripts for aggregation and diagnostics
-- `fixtures/`
-  fixture structure and examples
-- `snapshots/`
-  registry snapshots
-- `solidity-check/`
-  Solidity verifier checks
-- `Dockerfile`
-  canonical containerized proving stack
-- `server-go/`
-  Go HTTP server that consumes the local prover stack
-
-The embedded server is self-contained:
-
-- `server-go/docker-compose.yml` builds from this repository root
-- `server-go/apk/` is the local runtime mount for the Android APK
-
-## Why This Repository Stays Canonical
-
-Recursive proof compatibility is sensitive to:
-
-- zkPassport registry artifacts
-- compatibility metadata
-- `bb` provenance
-- Noir and ACIR versions
-- helper scripts
-- server aggregate invocation
-
-If those decisions are split across several repositories, upgrades become error-prone. The intended rule is:
-
-- change proving and version logic here first
-- update downstream consumers only after this repository is validated
-
-## Pinned Upstream Inputs
-
-The repository Dockerfile pins:
-
-- `zkpassport/aztec-packages`
-- `zkpassport/zkpassport-packages`
-
-Those refs are explicit in the Dockerfile so upgrades remain deliberate and reviewable.
-
-## Local Rust Usage
-
-Run commands from this repository root.
-
-Basic checks:
+### Using Docker Compose (Recommended)
 
 ```bash
-cargo check
+cd server-go
+
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Start the server
+docker compose up -d --build
+
+# Check health
+curl http://localhost:8080/api/health
+
+# View logs
+docker compose logs -f server
+```
+
+### Server Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Operator dashboard with QR code |
+| `/api/health` | GET | Health check |
+| `/api/request-config` | GET | Petition configuration for mobile app |
+| `/api/request-qr.png` | GET | QR code image |
+| `/api/proofs/aggregate` | POST | Submit inner proofs, receive outer proof |
+| `/downloads/app-release.apk` | GET | Android APK download |
+
+## Project Structure
+
+```
+├── crates/
+│   ├── acvm-witness-jni/   # Native witness solver (mobile FFI)
+│   ├── prover-cli/         # CLI for proof generation
+│   ├── prover-core/        # Core proving logic
+│   └── prover-types/       # Shared data structures
+├── server-go/              # HTTP server
+│   ├── api/                # HTTP handlers
+│   ├── cmd/                # Server entrypoint
+│   ├── proving/            # Prover subprocess bridge
+│   └── storage/            # Petition storage (MongoDB)
+├── artifacts/              # zkPassport circuit artifacts
+├── config/                 # Compatibility metadata
+├── scripts/                # Helper scripts
+├── docker/                 # Docker utilities
+└── Dockerfile              # Prover CLI image
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VOCDONI_PUBLIC_BASE_URL` | Public URL for QR codes | Required |
+| `VOCDONI_SERVER_LISTEN` | Server bind address | `0.0.0.0:8080` |
+| `VOCDONI_LOG_LEVEL` | Log level (debug/info/warn/error) | `info` |
+| `VOCDONI_MONGODB_URI` | MongoDB connection string | `mongodb://mongo:27017` |
+| `VOCDONI_PROVER_TIMEOUT` | Max proof generation time | `10m` |
+| `VOCDONI_PROVER_MAX_CONCURRENCY` | Max concurrent proofs | `1` |
+
+See `server-go/.env.example` for all options.
+
+## Development
+
+### Prerequisites
+
+- Rust 1.89+
+- Go 1.24+
+- Docker & Docker Compose
+
+### Building Locally
+
+```bash
+# Build Rust components
+cargo build --release
+
+# Run tests
 cargo test
+
+# Build Go server
+cd server-go && go build -o server ./cmd
 ```
 
-Show the active compatibility matrix:
+### CLI Usage
 
 ```bash
+# Show compatibility matrix
 cargo run -p prover-cli -- show-matrix
-```
 
-Validate a fixture:
-
-```bash
+# Validate a fixture
 cargo run -p prover-cli -- validate-fixture --dir fixtures/examples/minimal
-```
 
-Prove inner circuits for a fixture:
-
-```bash
+# Generate inner proofs
 cargo run -p prover-cli --features native-prover -- \
   prove-fixture-inner \
   --dir /path/to/fixture \
   --artifacts-dir artifacts/registry/minimal-default-0.16.0
-```
 
-Prove the outer circuit:
-
-```bash
+# Generate outer proof
 cargo run -p prover-cli --features native-prover -- \
   prove-fixture-outer \
   --dir /path/to/fixture \
   --artifacts-dir artifacts/registry/minimal-default-0.16.0
 ```
 
-Aggregate a server-style request:
+## Docker Images
+
+### Server Image (Recommended)
+
+The server image includes everything needed for production:
 
 ```bash
-cargo run -p prover-cli --features native-prover -- \
-  aggregate-request \
-  --input /tmp/request.json \
-  --output /tmp/result.json
+# Build from repository root
+docker build -f server-go/Dockerfile -t vocdoni-passport-server .
+
+# Run
+docker run -p 8080:8080 vocdoni-passport-server
 ```
 
-## Docker Usage
+### Prover CLI Image
 
-Build from this repository root:
+For standalone proof generation:
 
 ```bash
 docker build -t vocdoni-passport-prover .
-```
-
-Example command:
-
-```bash
 docker run --rm vocdoni-passport-prover show-matrix
 ```
 
-The image contains:
+## Deployment
 
-- `prover-cli`
-- a zkPassport-compatible `bb`
-- CRS files
-- local prover config, artifacts, and scripts
-- the minimum `zkpassport-utils` runtime needed by helper scripts
+### Production Checklist
 
-## Dockerfile Design Notes
+1. Configure `VOCDONI_PUBLIC_BASE_URL` with your public domain
+2. Set up MongoDB for petition storage
+3. Place the Android APK in `server-go/apk/`
+4. Configure TLS termination (nginx, Caddy, etc.)
+5. Set appropriate resource limits for proof generation
 
-The Dockerfile does a few non-obvious things deliberately:
+### Resource Requirements
 
-- builds `bb` from the zkPassport-compatible Aztec fork instead of using an arbitrary upstream release
-- rewrites the stale `msgpack` commit pin because that historical pin is no longer fetchable
-- clones `zkpassport-packages` only to build the runtime pieces of `zkpassport-utils`
-- keeps `prover-cli`, `bb`, artifacts, and helper scripts in one image
+| Component | CPU | Memory | Notes |
+|-----------|-----|--------|-------|
+| Server | 2+ cores | 4GB | HTTP handling |
+| Prover | 8+ cores | 32GB | Proof generation |
+| MongoDB | 1 core | 1GB | Petition storage |
 
-That keeps proving upgrades centralized in one place.
+Proof generation benefits significantly from:
+- AVX-512 capable CPUs (Intel Skylake-X+, AMD Zen 4+)
+- High memory bandwidth
+- SSD storage
 
-## Upgrade Guide
+## Upgrading
 
-### Upgrade zkPassport circuits and manifests
+### Circuit Artifacts
 
-1. Update `artifacts/` and `config/compatibility-matrix.json`.
-2. Re-run prover tests and the real-fixture flow.
-3. Rebuild the server image after the prover path is validated.
+1. Update `artifacts/` and `config/compatibility-matrix.json`
+2. Run prover tests with real fixtures
+3. Rebuild server image
+4. Deploy and verify end-to-end flow
 
-### Upgrade `bb` and `aztec-packages`
+### Barretenberg (bb)
 
-1. Change the pinned `AZTEC_PACKAGES_REF` in `Dockerfile`.
-2. Verify:
-   inner proofs verify against packaged VKs.
-3. Verify:
-   outer proof verifies locally and through the zkPassport path.
-4. Remove or adjust the `msgpack` patch if upstream changed.
+1. Update `AZTEC_PACKAGES_REF` in Dockerfiles
+2. Verify inner proofs against packaged VKs
+3. Verify outer proof generation
+4. Test full mobile app flow
 
-Do not treat `bb` as an isolated package bump.
+## Related Projects
 
-### Upgrade `zkpassport-packages`
+- [vocdoni-passport](https://github.com/vocdoni/vocdoni-passport) - Mobile application
+- [zkPassport](https://zkpassport.id) - Zero-knowledge passport protocol
 
-1. Change `ZKPASSPORT_PACKAGES_REF` in `Dockerfile`.
-2. Verify helper scripts and SDK-side diagnostics still pass.
+## Contributing
 
-### Upgrade Noir and ACIR
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request.
 
-1. Update the Noir dependencies in `Cargo.toml`.
-2. Confirm the packaged circuits still match the declared versions.
-3. Re-run fixture solving and proof verification before touching the server or app.
+## Security
 
-## Relationship With The Server
+For security issues, please email security@vocdoni.io instead of opening a public issue.
 
-The server should consume this repository, not compete with it.
+## License
 
-Practically, that means:
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
-- proving flags and version pins belong here
-- server subprocess invocation should adapt to this repository
-- if the output shape changes, update the server after this repository is validated
+---
 
-The embedded Go server lives in `server-go/`.
-
-## Relationship With The Mobile App
-
-The phone generates inner proofs and sends them to the server. The reproducible proving and debugging workflow belongs here.
-
-The intended testing model is:
-
-- capture document data once on device
-- replay and debug locally through this workspace
-- use the app for capture and integration verification
-
-## Maintenance Rules
-
-- Do not hardcode machine-specific paths or private hostnames in docs or scripts.
-- Use repository-relative paths in examples.
-- Keep Dockerfiles and READMEs written as public repository artifacts, not session notes.
-- Treat version changes as compatibility work, not package bumps.
+Built with ❤️ by [Vocdoni](https://vocdoni.io)

@@ -1,164 +1,176 @@
-# server-go
+# Vocdoni Passport Server
 
-Go HTTP and orchestration server embedded inside `vocdoni-passport-prover`.
+HTTP server for the Vocdoni Passport proving system.
 
-This directory exists so the proving stack and the server that consumes it live in the same repository.
+## Overview
 
-The rule is:
+This server provides:
 
-- proving versions, artifacts, and helper scripts are decided by `vocdoni-passport-prover`
-- `server-go` is the thin HTTP layer that consumes that local proving stack
+- **Operator Dashboard**: Web UI for creating and managing petitions
+- **Mobile API**: Endpoints for the Vocdoni Passport mobile app
+- **Proof Aggregation**: Orchestrates outer proof generation from inner proofs
+- **APK Distribution**: Serves the Android app for easy installation
 
-## Responsibilities
-
-`server-go` does five things:
-
-- exposes the request JSON payload used by the app
-- renders the operator page with QR and copyable request link
-- serves the Android APK mounted under `server-go/apk/`
-- accepts inner proof bundles from the mobile app
-- invokes `prover-cli aggregate-request` and returns the outer proof
-
-It does not implement proving logic itself.
-
-## Directory Layout
-
-- `cmd/main.go`
-  process bootstrap and runtime config
-- `api/server.go`
-  HTTP routes and middleware
-- `api/request.go`
-  operator page, QR, request payload
-- `proving/service.go`
-  subprocess bridge to `prover-cli`
-- `docker-compose.yml`
-  local deployment entrypoint
-- `Dockerfile`
-  deployable server image
-- `.env.example`
-  tracked runtime template
-- `apk/`
-  local directory served at `/downloads/app-release.apk`
-
-## Endpoints
-
-- `GET /`
-  operator page
-- `GET /api/request-config`
-  app-consumable JSON payload
-- `GET /api/request-qr.png`
-  QR image for the same payload
-- `GET /api/health`
-  liveness endpoint
-- `GET /downloads/app-release.apk`
-  current Android APK mounted into the container
-- `POST /api/proofs/aggregate`
-  accepts the app `InnerProofPackage` and returns the outer proof
-
-## Runtime Contract
-
-The server image contains:
-
-- the Go server binary
-- `prover-cli`
-- a zkPassport-compatible `bb`
-- prover config, artifacts, and helper scripts
-- the runtime subset of `zkpassport-utils`
-
-The Android APK is provided at runtime from `server-go/apk/`.
-
-## Runtime Configuration
-
-Set these values in `.env.example`, or copy it to `.env` for local overrides. The top-level `make server-*` targets use `.env` when present and otherwise fall back to `.env.example`.
-
-- `VOCDONI_PUBLIC_BASE_URL`
-  full phone-reachable base URL
-- `HOST_PORT`
-  published local port
-- `VOCDONI_SERVER_LISTEN`
-  bind address inside the container
-- `VOCDONI_LOG_LEVEL`
-  zerolog level
-- `VOCDONI_APK_PATH`
-  path served at `/downloads/app-release.apk`
-- `VOCDONI_PROVER_BINARY_PATH`
-  path to `prover-cli`
-- `BB_BINARY_PATH`
-  path to the local zkPassport-compatible `bb`
-- `VOCDONI_WORKSPACE_ROOT`
-  prover workspace root inside the image
-- `VOCDONI_ARTIFACTS_DIR`
-  active artifact directory
-- `VOCDONI_PROVER_TIMEOUT`
-  maximum aggregate job duration
-- `VOCDONI_PROVER_LOW_MEMORY_MODE`
-  enable low-memory aggregation mode
-- `VOCDONI_PROVER_MAX_STORAGE_USAGE`
-  storage and memory pressure limiter
-- `VOCDONI_PROVER_MAX_CONCURRENCY`
-  maximum concurrent aggregate jobs
-
-## Local Operation
-
-Run commands from this directory.
-
-Place the Android APK at `apk/app-release.apk` before startup if you want the download endpoint to serve it.
-
-Start:
+## Quick Start
 
 ```bash
-docker compose --env-file .env.example up -d --build
+# Copy environment configuration
+cp .env.example .env
+# Edit .env with your settings (especially VOCDONI_PUBLIC_BASE_URL)
+
+# Start with Docker Compose
+docker compose up -d --build
+
+# Check health
+curl http://localhost:8080/api/health
+
+# View logs
+docker compose logs -f server
 ```
 
-Health:
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Operator dashboard |
+| `/api/health` | GET | Health check |
+| `/api/request-config` | GET | Petition configuration (JSON) |
+| `/api/request-qr.png` | GET | QR code for petition |
+| `/api/proofs/aggregate` | POST | Submit inner proofs |
+| `/api/petitions` | GET | List petitions |
+| `/api/petitions` | POST | Create petition |
+| `/api/petitions/{id}` | GET | Get petition details |
+| `/api/petitions/{id}/signers` | GET | List petition signers |
+| `/downloads/app-release.apk` | GET | Android APK download |
+
+## Configuration
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
 
 ```bash
-curl -fsS "$VOCDONI_PUBLIC_BASE_URL/api/health"
+# Required: Public URL for QR codes and mobile app
+VOCDONI_PUBLIC_BASE_URL=https://your-domain.com
+
+# Server settings
+VOCDONI_SERVER_LISTEN=0.0.0.0:8080
+VOCDONI_LOG_LEVEL=info
+
+# MongoDB (for petition storage)
+VOCDONI_MONGODB_URI=mongodb://mongo:27017
+VOCDONI_MONGODB_DATABASE=vocdoni_passport
+
+# Prover settings
+VOCDONI_PROVER_TIMEOUT=10m
+VOCDONI_PROVER_MAX_CONCURRENCY=1
+VOCDONI_PROVER_LOW_MEMORY_MODE=false
 ```
 
-Logs:
+See `.env.example` for all available options.
+
+## Directory Structure
+
+```
+server-go/
+├── api/           # HTTP handlers
+│   ├── server.go  # Main server setup
+│   ├── request.go # Petition/request handlers
+│   └── proofs.go  # Proof aggregation handlers
+├── cmd/           # Server entrypoint
+│   └── main.go
+├── proving/       # Prover subprocess bridge
+│   └── service.go
+├── storage/       # MongoDB storage
+│   └── mongo.go
+├── presets/       # Petition presets
+├── apk/           # APK directory (mount point)
+├── Dockerfile     # Server image
+├── docker-compose.yml
+└── .env.example
+```
+
+## Deployment
+
+### With Docker Compose (Recommended)
 
 ```bash
-docker compose --env-file .env.example logs -f server
+docker compose up -d --build
 ```
 
-Stop:
+This starts:
+- The server on port 8080
+- MongoDB for petition storage
+
+### Manual Docker
 
 ```bash
-docker compose --env-file .env.example down --remove-orphans
+# Build from repository root
+docker build -f server-go/Dockerfile -t vocdoni-passport-server .
+
+# Run
+docker run -p 8080:8080 \
+  -e VOCDONI_PUBLIC_BASE_URL=https://your-domain.com \
+  -e VOCDONI_MONGODB_URI=mongodb://your-mongo:27017 \
+  -v /path/to/apk:/opt/vocdoni/downloads:ro \
+  vocdoni-passport-server
 ```
 
-## Docker Strategy
+### APK Distribution
 
-The Dockerfile is server-focused, but it compiles the Rust prover from the same repository.
+Place the Android APK at `apk/app-release.apk` before starting:
 
-That is intentional:
+```bash
+# Build APK from vocdoni-passport repository
+cd ../vocdoni-passport
+make apk
+cp out/app-release.apk ../vocdoni-passport-prover/server-go/apk/
+```
 
-- one repository decides the proving stack
-- the server image packages that exact stack
-- no host-side `bb` or `prover-cli` installation is required
+Or download from the [vocdoni-passport releases](https://github.com/vocdoni/vocdoni-passport/releases).
 
-## Upgrade Rules
+## Development
 
-When zkPassport circuits, `bb`, Noir, helper scripts, or the APK change:
+### Local Development
 
-1. update and validate the proving stack in the parent repository
-2. rebuild this server image
-3. verify:
-   the request payload flow
-4. verify:
-   the aggregate flow
-5. verify:
-   the APK download endpoint
+```bash
+# Install dependencies
+go mod download
 
-Do not treat `server-go` as a separate versioning authority.
+# Run locally (requires MongoDB)
+go run ./cmd
 
-## Why Go Calls `prover-cli`
+# Run tests
+go test -v ./...
+```
 
-This is the current clean boundary:
+### Building
 
-- Go owns HTTP and request handling
-- Rust owns proving
-- the interface between them is a stable JSON and file contract
+```bash
+# Build binary
+go build -o server ./cmd
 
-That keeps the server small and lets the proving stack evolve in one place.
+# Build Docker image
+docker build -f Dockerfile -t vocdoni-passport-server ..
+```
+
+## Architecture
+
+The server is intentionally thin - it handles HTTP and orchestration only. All proving logic lives in the Rust `prover-cli` binary.
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Mobile    │────▶│   Server    │────▶│  prover-cli │
+│    App      │     │   (Go)      │     │   (Rust)    │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   MongoDB   │
+                    └─────────────┘
+```
+
+## Related
+
+- [vocdoni-passport](https://github.com/vocdoni/vocdoni-passport) - Mobile application
+- [Parent README](../README.md) - Full prover documentation
