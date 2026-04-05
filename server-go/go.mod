@@ -1,6 +1,6 @@
 module github.com/vocdoni/vocdoni-passport-prover/server-go
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/rs/zerolog v1.34.0

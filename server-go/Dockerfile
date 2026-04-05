@@ -126,7 +126,7 @@ RUN cd packages/zkpassport-utils && bun run build
 # Stage 3: Build prover-cli (Rust)
 # =============================================================================
 
-FROM rust:1.89-trixie AS prover-builder
+FROM rust:1.89-bookworm AS prover-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -161,7 +161,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Stage 4: Build Go server
 # =============================================================================
 
-FROM golang:1.24-trixie AS server-builder
+FROM golang:1.26-bookworm AS server-builder
 
 WORKDIR /src/server-go
 COPY server-go/go.mod /src/server-go/go.mod
@@ -178,7 +178,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 # Stage 5: Final runtime image
 # =============================================================================
 
-FROM debian:trixie-slim
+FROM debian:bookworm-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG NODE_MAJOR=20
@@ -193,7 +193,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     jq \
     libc++1 \
     libstdc++6 \
-    libtcmalloc-minimal4t64 \
+    libtcmalloc-minimal4 \
     zlib1g \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
@@ -236,6 +236,8 @@ ENV PATH=/opt/vocdoni/bin:/usr/local/bin:/usr/bin:/bin
 
 # Use tcmalloc for improved memory allocation in multi-threaded proving
 # Provides 10-60% speedup depending on core count
+# Use tcmalloc for improved memory allocation in multi-threaded proving
+# The exact path may vary by Debian version
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
 
 EXPOSE 8080

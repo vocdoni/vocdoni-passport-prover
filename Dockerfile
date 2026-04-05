@@ -128,7 +128,7 @@ RUN cd packages/zkpassport-utils && bun run build
 # Stage 3: Final image with prover-cli
 # =============================================================================
 
-FROM rust:1.89-trixie
+FROM rust:1.89-bookworm
 
 ARG NODE_MAJOR=20
 ENV DEBIAN_FRONTEND=noninteractive

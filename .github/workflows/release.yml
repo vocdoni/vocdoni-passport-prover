@@ -1,6 +1,7 @@
 # Release Workflow
 #
 # Creates a GitHub release and pushes Docker images when a version tag is pushed.
+# Docker builds run on self-hosted runners due to heavy build requirements.
 #
 # Copyright (c) 2024 Vocdoni Association
 # SPDX-License-Identifier: AGPL-3.0-or-later
@@ -60,7 +61,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache-dependency-path: server-go/go.sum
 
       - name: Cache Cargo
@@ -79,11 +80,11 @@ jobs:
         working-directory: server-go
         run: go test -v ./...
 
-  # Build and push Docker images
+  # Build and push Docker images (on self-hosted runner)
   docker:
     name: Build & Push Docker Images
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: [self-hosted]
+    timeout-minutes: 180
     needs: [prepare, test]
     permissions:
       contents: read
@@ -102,12 +103,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

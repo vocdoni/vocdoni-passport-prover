@@ -41,8 +41,8 @@ go.work.sum
 outputs/
 out/
 
-# Circuit artifacts (large, downloaded separately)
-artifacts/
+# Circuit artifacts are tracked in git (required for builds)
+# artifacts/
 
 # Registry snapshots
 snapshots/
