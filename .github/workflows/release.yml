@@ -83,7 +83,7 @@ jobs:
   # Build and push Docker images (on self-hosted runner)
   docker:
     name: Build & Push Docker Images
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux, X64]
     timeout-minutes: 180
     needs: [prepare, test]
     permissions:

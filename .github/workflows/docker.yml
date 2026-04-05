@@ -1,7 +1,7 @@
 # Docker Build Workflow
 #
 # Builds and optionally pushes Docker images for the prover and server.
-# Runs on self-hosted runners due to heavy build requirements.
+# Runs on self-hosted Linux x64 runners (labels: self-hosted, linux, X64).
 #
 # Note: Images are only pushed on manual trigger with push_images=true
 # or when a release tag is pushed. Regular pushes only verify the build.
@@ -48,7 +48,7 @@ jobs:
   # Build prover CLI image
   build-prover:
     name: Build Prover Image
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux, X64]
     timeout-minutes: 180
     permissions:
       contents: read
@@ -95,7 +95,7 @@ jobs:
   # Build server image
   build-server:
     name: Build Server Image
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux, X64]
     timeout-minutes: 180
     permissions:
       contents: read
