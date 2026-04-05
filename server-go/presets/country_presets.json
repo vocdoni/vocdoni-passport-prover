@@ -1,0 +1,460 @@
+{
+  "version": "1.0.0",
+  "presets": {
+    "generic": {
+      "id": "generic",
+      "name": "Generic (All Countries)",
+      "description": "Standard fields available in most ICAO 9303 compliant documents",
+      "countries": [],
+      "documentTypes": ["passport", "id_card"],
+      "fields": {
+        "mrz": {
+          "nationality": {
+            "label": "Nationality",
+            "description": "3-letter country code (e.g., ESP, FRA, DEU)",
+            "example": "ESP",
+            "available": true
+          },
+          "issuing_country": {
+            "label": "Issuing Country",
+            "description": "Country that issued the document",
+            "example": "ESP",
+            "available": true
+          },
+          "firstname": {
+            "label": "First Name",
+            "description": "Given name(s) as shown in MRZ",
+            "example": "JUAN",
+            "available": true
+          },
+          "lastname": {
+            "label": "Last Name",
+            "description": "Surname(s) as shown in MRZ",
+            "example": "GARCIA LOPEZ",
+            "available": true
+          },
+          "fullname": {
+            "label": "Full Name",
+            "description": "Complete name from MRZ",
+            "example": "GARCIA LOPEZ, JUAN",
+            "available": true
+          },
+          "birthdate": {
+            "label": "Date of Birth",
+            "description": "Birth date in YYMMDD format",
+            "example": "850315",
+            "available": true
+          },
+          "expiry_date": {
+            "label": "Expiry Date",
+            "description": "Document expiration date",
+            "example": "280315",
+            "available": true
+          },
+          "document_number": {
+            "label": "Document Number",
+            "description": "Official document identifier",
+            "example": "AB1234567",
+            "available": true
+          },
+          "document_type": {
+            "label": "Document Type",
+            "description": "Type of travel document (P=Passport, I=ID Card)",
+            "example": "P",
+            "available": true
+          },
+          "gender": {
+            "label": "Gender",
+            "description": "M=Male, F=Female, X=Unspecified",
+            "example": "M",
+            "available": true
+          },
+          "optional_data_1": {
+            "label": "Optional Data 1",
+            "description": "Country-specific optional field (TD1: chars 15-29, TD3: chars 71-84)",
+            "example": "Varies by country",
+            "available": true
+          },
+          "optional_data_2": {
+            "label": "Optional Data 2",
+            "description": "Second optional field (TD1 only: line 2, chars 18-28)",
+            "example": "Varies by country",
+            "available": true,
+            "td1Only": true
+          }
+        }
+      },
+      "constraints": {
+        "nationality": { "configurable": true },
+        "issuing_country": { "configurable": true },
+        "age": { "configurable": true }
+      }
+    },
+    "esp_dni": {
+      "id": "esp_dni",
+      "name": "Spanish DNI",
+      "description": "Spanish National ID Card (Documento Nacional de Identidad)",
+      "countries": ["ESP"],
+      "documentTypes": ["id_card"],
+      "fields": {
+        "mrz": {
+          "nationality": {
+            "label": "Nationality",
+            "description": "Always ESP for Spanish DNI",
+            "example": "ESP",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "ESP"
+          },
+          "issuing_country": {
+            "label": "Issuing Country",
+            "description": "Always ESP for Spanish DNI",
+            "example": "ESP",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "ESP"
+          },
+          "firstname": {
+            "label": "Nombre",
+            "description": "Given name(s)",
+            "example": "JUAN CARLOS",
+            "available": true
+          },
+          "lastname": {
+            "label": "Apellidos",
+            "description": "First and second surname",
+            "example": "GARCIA LOPEZ",
+            "available": true
+          },
+          "fullname": {
+            "label": "Nombre Completo",
+            "description": "Full name as in DNI",
+            "example": "GARCIA LOPEZ, JUAN CARLOS",
+            "available": true
+          },
+          "birthdate": {
+            "label": "Fecha de Nacimiento",
+            "description": "Birth date",
+            "example": "850315",
+            "available": true
+          },
+          "expiry_date": {
+            "label": "Fecha de Caducidad",
+            "description": "Expiry date",
+            "example": "280315",
+            "available": true
+          },
+          "document_number": {
+            "label": "Número de Soporte",
+            "description": "Support number (not the DNI number)",
+            "example": "AAA123456",
+            "available": true
+          },
+          "document_type": {
+            "label": "Tipo de Documento",
+            "description": "ID Card type",
+            "example": "ID",
+            "available": true
+          },
+          "gender": {
+            "label": "Sexo",
+            "description": "M=Masculino, F=Femenino",
+            "example": "M",
+            "available": true
+          },
+          "dni_number": {
+            "label": "Número de DNI",
+            "description": "Spanish DNI number with letter (stored in Optional Data 1)",
+            "example": "12345678Z",
+            "available": true,
+            "mapsTo": "optional_data_1",
+            "mrzPosition": { "start": 15, "end": 24 }
+          }
+        }
+      },
+      "constraints": {
+        "nationality": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["ESP"] }
+        },
+        "issuing_country": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["ESP"] }
+        },
+        "age": { "configurable": true }
+      }
+    },
+    "deu_personalausweis": {
+      "id": "deu_personalausweis",
+      "name": "German Personalausweis",
+      "description": "German National ID Card",
+      "countries": ["DEU"],
+      "documentTypes": ["id_card"],
+      "fields": {
+        "mrz": {
+          "nationality": {
+            "label": "Nationality",
+            "description": "Always D (Germany)",
+            "example": "D",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "D"
+          },
+          "issuing_country": {
+            "label": "Issuing Country",
+            "description": "Always D (Germany)",
+            "example": "D",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "D"
+          },
+          "firstname": {
+            "label": "Vorname",
+            "description": "Given name(s)",
+            "example": "HANS",
+            "available": true
+          },
+          "lastname": {
+            "label": "Nachname",
+            "description": "Family name",
+            "example": "MUELLER",
+            "available": true
+          },
+          "fullname": {
+            "label": "Vollständiger Name",
+            "description": "Complete name",
+            "example": "MUELLER, HANS",
+            "available": true
+          },
+          "birthdate": {
+            "label": "Geburtsdatum",
+            "description": "Date of birth",
+            "example": "850315",
+            "available": true
+          },
+          "expiry_date": {
+            "label": "Gültig bis",
+            "description": "Valid until",
+            "example": "280315",
+            "available": true
+          },
+          "document_number": {
+            "label": "Ausweisnummer",
+            "description": "ID card number",
+            "example": "T220001293",
+            "available": true
+          },
+          "document_type": {
+            "label": "Dokumententyp",
+            "description": "Document type",
+            "example": "ID",
+            "available": true
+          },
+          "gender": {
+            "label": "Geschlecht",
+            "description": "M=Männlich, F=Weiblich",
+            "example": "M",
+            "available": true
+          }
+        }
+      },
+      "constraints": {
+        "nationality": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["D", "DEU"] }
+        },
+        "issuing_country": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["D", "DEU"] }
+        },
+        "age": { "configurable": true }
+      }
+    },
+    "fra_cni": {
+      "id": "fra_cni",
+      "name": "French CNI",
+      "description": "French National ID Card (Carte Nationale d'Identité)",
+      "countries": ["FRA"],
+      "documentTypes": ["id_card"],
+      "fields": {
+        "mrz": {
+          "nationality": {
+            "label": "Nationalité",
+            "description": "Always FRA",
+            "example": "FRA",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "FRA"
+          },
+          "issuing_country": {
+            "label": "Pays émetteur",
+            "description": "Always FRA",
+            "example": "FRA",
+            "available": true,
+            "fixed": true,
+            "fixedValue": "FRA"
+          },
+          "firstname": {
+            "label": "Prénom(s)",
+            "description": "Given name(s)",
+            "example": "JEAN PIERRE",
+            "available": true
+          },
+          "lastname": {
+            "label": "Nom",
+            "description": "Family name",
+            "example": "DUPONT",
+            "available": true
+          },
+          "fullname": {
+            "label": "Nom complet",
+            "description": "Full name",
+            "example": "DUPONT, JEAN PIERRE",
+            "available": true
+          },
+          "birthdate": {
+            "label": "Date de naissance",
+            "description": "Birth date",
+            "example": "850315",
+            "available": true
+          },
+          "expiry_date": {
+            "label": "Date d'expiration",
+            "description": "Expiry date",
+            "example": "280315",
+            "available": true
+          },
+          "document_number": {
+            "label": "Numéro de carte",
+            "description": "Card number",
+            "example": "123456789012",
+            "available": true
+          },
+          "document_type": {
+            "label": "Type de document",
+            "description": "Document type",
+            "example": "ID",
+            "available": true
+          },
+          "gender": {
+            "label": "Sexe",
+            "description": "M=Masculin, F=Féminin",
+            "example": "M",
+            "available": true
+          }
+        }
+      },
+      "constraints": {
+        "nationality": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["FRA"] }
+        },
+        "issuing_country": { 
+          "configurable": false, 
+          "fixed": true,
+          "fixedValue": { "in": ["FRA"] }
+        },
+        "age": { "configurable": true }
+      }
+    },
+    "eu_passport": {
+      "id": "eu_passport",
+      "name": "EU Passport",
+      "description": "European Union Member State Passports",
+      "countries": ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE"],
+      "documentTypes": ["passport"],
+      "fields": {
+        "mrz": {
+          "nationality": {
+            "label": "Nationality",
+            "description": "EU member state code",
+            "example": "ESP",
+            "available": true
+          },
+          "issuing_country": {
+            "label": "Issuing Country",
+            "description": "EU member state",
+            "example": "ESP",
+            "available": true
+          },
+          "firstname": {
+            "label": "First Name",
+            "description": "Given name(s)",
+            "example": "JUAN",
+            "available": true
+          },
+          "lastname": {
+            "label": "Last Name",
+            "description": "Surname",
+            "example": "GARCIA",
+            "available": true
+          },
+          "fullname": {
+            "label": "Full Name",
+            "description": "Complete name",
+            "example": "GARCIA, JUAN",
+            "available": true
+          },
+          "birthdate": {
+            "label": "Date of Birth",
+            "description": "Birth date",
+            "example": "850315",
+            "available": true
+          },
+          "expiry_date": {
+            "label": "Expiry Date",
+            "description": "Passport expiry",
+            "example": "280315",
+            "available": true
+          },
+          "document_number": {
+            "label": "Passport Number",
+            "description": "Passport number",
+            "example": "AB1234567",
+            "available": true
+          },
+          "document_type": {
+            "label": "Document Type",
+            "description": "Always P for passport",
+            "example": "P",
+            "available": true
+          },
+          "gender": {
+            "label": "Gender",
+            "description": "M/F/X",
+            "example": "M",
+            "available": true
+          },
+          "optional_data_1": {
+            "label": "Personal Number",
+            "description": "National ID number (if present)",
+            "example": "Varies by country",
+            "available": true
+          }
+        }
+      },
+      "constraints": {
+        "nationality": { 
+          "configurable": true,
+          "defaultValue": { "in": ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE"] }
+        },
+        "issuing_country": { 
+          "configurable": true,
+          "defaultValue": { "in": ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE"] }
+        },
+        "age": { "configurable": true }
+      }
+    }
+  },
+  "fieldCategories": {
+    "identity": ["firstname", "lastname", "fullname", "birthdate", "gender"],
+    "document": ["document_number", "document_type", "expiry_date", "issuing_country"],
+    "location": ["nationality"],
+    "optional": ["optional_data_1", "optional_data_2", "dni_number"]
+  }
+}

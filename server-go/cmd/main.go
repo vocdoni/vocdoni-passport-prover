@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/api"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/proving"
+	"github.com/vocdoni/vocdoni-passport-prover/server-go/storage"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -104,6 +105,9 @@ func main() {
 	flag.Parse()
 	proverMaxStorageUsage := envUint64Ptr("VOCDONI_PROVER_MAX_STORAGE_USAGE")
 
+	mongoURI := envOrDefault("VOCDONI_MONGODB_URI", "")
+	mongoDatabase := envOrDefault("VOCDONI_MONGODB_DATABASE", "vocdoni_passport")
+
 	logger.Info().
 		Str("listen_addr", *listenAddr).
 		Str("public_base_url", envOrDefault("VOCDONI_PUBLIC_BASE_URL", "")).
@@ -121,7 +125,28 @@ func main() {
 			}
 			return *proverMaxStorageUsage
 		}()).
+		Str("mongodb_uri", mongoURI).
+		Str("mongodb_database", mongoDatabase).
 		Msg("initializing server")
+
+	var db *storage.MongoDB
+	if mongoURI != "" {
+		var err error
+		db, err = storage.NewMongoDB(mongoURI, mongoDatabase)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("failed to connect to MongoDB")
+		}
+		logger.Info().Msg("connected to MongoDB")
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := db.Close(ctx); err != nil {
+				logger.Error().Err(err).Msg("failed to close MongoDB connection")
+			}
+		}()
+	} else {
+		logger.Warn().Msg("MongoDB not configured, petition storage disabled")
+	}
 
 	provingService := proving.NewService(proving.Config{
 		ProverBinaryPath: *proverBinaryPath,
@@ -134,7 +159,7 @@ func main() {
 		MaxConcurrency:   *proverMaxConcurrency,
 	}, logger)
 
-	server := api.NewServer(*listenAddr, provingService, *apkPath, logger)
+	server := api.NewServer(*listenAddr, provingService, db, *apkPath, logger)
 
 	errCh := make(chan error, 1)
 	go func() {
