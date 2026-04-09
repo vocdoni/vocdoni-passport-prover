@@ -94,6 +94,13 @@ RUN cd /src/aztec-packages/barretenberg/cpp && \
       -DCMAKE_CXX_FLAGS="-O3 -march=x86-64-v4 -mtune=generic" && \
     cmake --build build --target bb
 
+# Copy bb runtime libraries into the final image.
+RUN mkdir -p /opt/bb-runtime-libs && \
+    cp -a /usr/lib/x86_64-linux-gnu/libstdc++.so.6* /opt/bb-runtime-libs/ && \
+    cp -a /lib/x86_64-linux-gnu/libgcc_s.so.1 /opt/bb-runtime-libs/ && \
+    if [ -e /lib/x86_64-linux-gnu/libgomp.so.1 ]; then cp -a /lib/x86_64-linux-gnu/libgomp.so.1 /opt/bb-runtime-libs/; fi && \
+    if [ -e /usr/lib/x86_64-linux-gnu/libgomp.so.1 ]; then cp -a /usr/lib/x86_64-linux-gnu/libgomp.so.1 /opt/bb-runtime-libs/; fi
+
 # =============================================================================
 # Stage 2: Build zkpassport-utils runtime
 # =============================================================================
@@ -209,6 +216,7 @@ WORKDIR /opt/vocdoni
 # Copy binaries
 COPY --from=bb-builder /src/aztec-packages/barretenberg/cpp/build/bin/bb /usr/local/bin/bb
 COPY --from=bb-builder /root/.bb-crs /opt/bb-crs
+COPY --from=bb-builder /opt/bb-runtime-libs/ /usr/local/lib/bb-runtime/
 COPY --from=prover-builder /src/vocdoni-passport-prover/target/release/prover-cli /opt/vocdoni/bin/prover-cli
 COPY --from=server-builder /out/vocdoni-passport-server /opt/vocdoni/bin/server
 
@@ -232,13 +240,14 @@ ENV VOCDONI_APK_PATH=/opt/vocdoni/downloads/app-release.apk
 ENV VOCDONI_PROVER_BINARY_PATH=/opt/vocdoni/bin/prover-cli
 ENV VOCDONI_WORKSPACE_ROOT=/opt/vocdoni/repos/vocdoni-passport-prover
 ENV VOCDONI_ARTIFACTS_DIR=/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.16.0
+ENV LD_LIBRARY_PATH=/usr/local/lib/bb-runtime:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
 ENV PATH=/opt/vocdoni/bin:/usr/local/bin:/usr/bin:/bin
 
-# Use tcmalloc for improved memory allocation in multi-threaded proving
-# Provides 10-60% speedup depending on core count
-# Use tcmalloc for improved memory allocation in multi-threaded proving
-# The exact path may vary by Debian version
+# Use tcmalloc for improved memory allocation in multi-threaded proving.
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
+
+# Verify bb starts in the final runtime image.
+RUN /usr/local/bin/bb --version >/dev/null
 
 EXPOSE 8080
 
