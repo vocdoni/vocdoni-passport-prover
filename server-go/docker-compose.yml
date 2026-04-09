@@ -6,6 +6,9 @@ services:
     build:
       context: ..
       dockerfile: server-go/Dockerfile
+      args:
+        BB_TARGET_ARCH: ${BB_TARGET_ARCH:-native}
+        BB_TUNE_ARCH: ${BB_TUNE_ARCH:-native}
     ports:
       - "${HOST_PORT}:8080"
     volumes:

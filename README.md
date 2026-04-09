@@ -54,6 +54,43 @@ curl http://localhost:8080/api/health
 docker compose logs -f server
 ```
 
+### Choosing the `bb` CPU target
+
+Barretenberg (`bb`) is compiled during the Docker build. On x86-64, the build passes `BB_TARGET_ARCH` directly to Barretenberg's `TARGET_ARCH`, which Barretenberg forwards to the compiler as `-march=<target>`.
+
+This affects deployment:
+
+- `BB_TARGET_ARCH=native` builds for the CPU that runs `docker build`
+- if you build on one machine and run on another, `native` can produce a binary that crashes on older CPUs
+- for reusable images, set an explicit portable target in `server-go/.env`
+
+Common x86-64 targets:
+
+| `BB_TARGET_ARCH` | Typical CPU class | Notes |
+|------------------|-------------------|-------|
+| `native` | Current build host | Best performance when building on the same machine that will run the container |
+| `x86-64-v2` | Intel Nehalem/Westmere+, AMD Bulldozer+/Zen | Broad compatibility baseline |
+| `x86-64-v3` | Intel Haswell/Broadwell/Skylake+, AMD Zen family | Good portable choice for AVX2/FMA/BMI2-era servers |
+| `skylake` | Intel Skylake/Cascade Lake class | Barretenberg's default preset baseline |
+| `x86-64-v4` | Intel Ice Lake/Sapphire Rapids, AVX-512-capable Zen 4 systems | Highest x86 preset, not portable to most older servers |
+
+`BB_TUNE_ARCH` controls `-mtune` only. It does not change the required instruction set. For portable builds, `BB_TUNE_ARCH=generic` is a safe choice.
+
+Examples:
+
+```bash
+# Build for the local machine only
+docker compose up -d --build
+
+# Build a portable image for most modern AVX2-capable servers
+BB_TARGET_ARCH=x86-64-v3 BB_TUNE_ARCH=generic docker compose up -d --build
+
+# Build a conservative image for mixed or older x86 fleets
+BB_TARGET_ARCH=x86-64-v2 BB_TUNE_ARCH=generic docker compose up -d --build
+```
+
+On `arm64` / `aarch64`, Barretenberg uses its ARM build path and does not apply the x86 `TARGET_ARCH` setting.
+
 ### Server Endpoints
 
 | Endpoint | Method | Description |
@@ -157,6 +194,16 @@ docker build -f server-go/Dockerfile -t vocdoni-passport-server .
 docker run -p 8080:8080 vocdoni-passport-server
 ```
 
+To build a portable x86-64 image explicitly:
+
+```bash
+docker build \
+  -f server-go/Dockerfile \
+  --build-arg BB_TARGET_ARCH=x86-64-v3 \
+  --build-arg BB_TUNE_ARCH=generic \
+  -t vocdoni-passport-server .
+```
+
 ### Prover CLI Image
 
 For standalone proof generation:
@@ -188,6 +235,8 @@ Proof generation benefits significantly from:
 - AVX-512 capable CPUs (Intel Skylake-X+, AMD Zen 4+)
 - High memory bandwidth
 - SSD storage
+
+If you target AVX-512-class hardware, set `BB_TARGET_ARCH=x86-64-v4` explicitly and build on a machine that supports it.
 
 ## Upgrading
 

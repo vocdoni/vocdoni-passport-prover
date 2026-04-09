@@ -22,6 +22,8 @@ FROM ubuntu:22.04 AS bb-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG AZTEC_PACKAGES_REF=a4f7c39e15e7835c1f5f491168afa4aaac286894
+ARG BB_TARGET_ARCH=native
+ARG BB_TUNE_ARCH=native
 
 # Build bb from the zkPassport-compatible aztec-packages fork.
 # Do not replace this with an upstream prebuilt binary - the registry artifacts
@@ -89,11 +91,11 @@ RUN sed -i 's/5ee9a1c8c325658b29867829677c7eb79c433a98/c0334576ed657fb3b3c49e8e6
 RUN cd /src/aztec-packages/barretenberg/cpp && \
     cmake --preset clang20 \
       -DCMAKE_BUILD_TYPE=Release \
-      -DTARGET_ARCH=native \
+      -DTARGET_ARCH=${BB_TARGET_ARCH} \
       -DENABLE_PAR_ALGOS=ON \
       -DMULTITHREADING=ON \
       -DDISABLE_AZTEC_VM=ON \
-      -DCMAKE_CXX_FLAGS="-O3 -march=native -mtune=native" && \
+      -DCMAKE_CXX_FLAGS="-O3 -mtune=${BB_TUNE_ARCH}" && \
     cmake --build build --target bb
 
 # =============================================================================

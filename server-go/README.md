@@ -28,6 +28,41 @@ curl http://localhost:8080/api/health
 docker compose logs -f server
 ```
 
+### Choosing the `bb` CPU target
+
+The server image builds Barretenberg (`bb`) during `docker compose build`.
+
+- `BB_TARGET_ARCH=native` builds for the CPU that runs the build
+- this is best when you build on the same machine that will run the server
+- if you build on one machine and deploy on another, use an explicit portable target
+
+Common x86-64 targets:
+
+| `BB_TARGET_ARCH` | Typical CPU class | Notes |
+|------------------|-------------------|-------|
+| `native` | Current build host | Best performance for same-host builds |
+| `x86-64-v2` | Intel Nehalem/Westmere+, AMD Bulldozer+/Zen | Broad compatibility |
+| `x86-64-v3` | Intel Haswell/Broadwell/Skylake+, AMD Zen family | Good default for most AVX2-capable servers |
+| `skylake` | Intel Skylake/Cascade Lake class | Barretenberg preset default |
+| `x86-64-v4` | Intel Ice Lake/Sapphire Rapids, AVX-512-capable Zen 4 systems | Highest preset, not portable to older CPUs |
+
+`BB_TUNE_ARCH` controls `-mtune` only. For portable builds, `generic` is a safe value.
+
+Examples:
+
+```bash
+# Build for this machine only
+docker compose up -d --build
+
+# Build for most modern x86-64 servers
+BB_TARGET_ARCH=x86-64-v3 BB_TUNE_ARCH=generic docker compose up -d --build
+
+# Build for older mixed x86-64 fleets
+BB_TARGET_ARCH=x86-64-v2 BB_TUNE_ARCH=generic docker compose up -d --build
+```
+
+On `arm64` / `aarch64`, Barretenberg uses its ARM build path and ignores the x86-specific target setting.
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
@@ -116,6 +151,16 @@ docker run -p 8080:8080 \
   vocdoni-passport-server
 ```
 
+To build a portable x86-64 image explicitly:
+
+```bash
+docker build \
+  -f server-go/Dockerfile \
+  --build-arg BB_TARGET_ARCH=x86-64-v3 \
+  --build-arg BB_TUNE_ARCH=generic \
+  -t vocdoni-passport-server .
+```
+
 ### APK Distribution
 
 Place the Android APK at `apk/app-release.apk` before starting:
@@ -152,6 +197,16 @@ go build -o server ./cmd
 
 # Build Docker image
 docker build -f Dockerfile -t vocdoni-passport-server ..
+```
+
+With an explicit portable CPU target:
+
+```bash
+docker build \
+  -f Dockerfile \
+  --build-arg BB_TARGET_ARCH=x86-64-v3 \
+  --build-arg BB_TUNE_ARCH=generic \
+  -t vocdoni-passport-server ..
 ```
 
 ## Architecture
