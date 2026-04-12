@@ -654,15 +654,15 @@ func (s *Server) handlePetition(w http.ResponseWriter, r *http.Request) {
 	// Apps/programmatic clients send: Accept: application/json or just omit it
 	accept := r.Header.Get("Accept")
 	format := r.URL.Query().Get("format")
-	
+
 	// Return HTML only if explicitly requested (browser behavior)
 	// Otherwise default to JSON (app/API behavior)
-	wantsHTML := format == "html" || 
+	wantsHTML := format == "html" ||
 		(strings.Contains(accept, "text/html") && !strings.Contains(accept, "application/json"))
-	
+
 	if !wantsHTML {
 		// Return JSON payload for the app
-		payload := buildPetitionPayload(petition, baseURL(r))
+		payload := buildPetitionPayload(petition, baseURL(r), baseURL(r))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(payload)
 		return
@@ -674,19 +674,20 @@ func (s *Server) handlePetition(w http.ResponseWriter, r *http.Request) {
 		Signatures:      signatures,
 		TotalSignatures: totalSignatures,
 		BaseURL:         baseURL(r),
+		DeepLinkURL:     petitionDeepLinkURL(r, petitionID),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = petitionPageTemplate.Execute(w, data)
 }
 
-func buildPetitionPayload(petition *storage.Petition, base string) map[string]any {
+func buildPetitionPayload(petition *storage.Petition, aggregateBase, infoBase string) map[string]any {
 	return map[string]any{
-		"kind":         "proof-request",
+		"kind":         "vocdoni-passport-request",
 		"version":      1,
-		"aggregateUrl": base + "/api/proofs/aggregate",
+		"aggregateUrl": joinURL(aggregateBase, "/api/proofs/aggregate"),
 		"petitionId":   petition.PetitionID,
-		"infoUrl":      base + "/petition/" + petition.PetitionID,
+		"infoUrl":      joinURL(infoBase, "/petition/"+petition.PetitionID),
 		"service": map[string]any{
 			"name":    petition.Name,
 			"purpose": petition.Purpose,
@@ -717,16 +718,7 @@ func (s *Server) handlePetitionQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the full JSON payload for the QR code
-	payload := buildPetitionPayload(petition, baseURL(r))
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Generate QR code containing the JSON payload
-	png, err := qrcode.Encode(string(jsonBytes), qrcode.Medium, 256)
+	png, err := qrcode.Encode(petitionDeepLinkURL(r, petitionID), qrcode.Medium, 256)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -740,6 +732,7 @@ type petitionPageData struct {
 	Signatures      []*storage.Signature
 	TotalSignatures int64
 	BaseURL         string
+	DeepLinkURL     string
 }
 
 func (s *Server) handleExplorePage(w http.ResponseWriter, r *http.Request) {

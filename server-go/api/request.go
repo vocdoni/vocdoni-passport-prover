@@ -35,21 +35,34 @@ type RequestService struct {
 }
 
 type requestPageData struct {
-	Title          string
-	PayloadJSON    string
-	PayloadB64     string
-	AggregateURL   string
-	APKDownloadURL string
-	NationalityIn  string
-	NationalityOut string
-	IssuingCountryIn  string
-	IssuingCountryOut string
-	Disclose       string
-	AgeGte         string
-	Purpose        string
-	Scope          string
-	PetitionID     string
-	Name           string
+	Title               string
+	PayloadJSON         string
+	PayloadB64          string
+	AggregateURL        string
+	APKDownloadURL      string
+	PetitionLinkBaseURL string
+	PetitionViewBaseURL string
+	NationalityIn       string
+	NationalityOut      string
+	IssuingCountryIn    string
+	IssuingCountryOut   string
+	Disclose            string
+	AgeGte              string
+	Purpose             string
+	Scope               string
+	PetitionID          string
+	Name                string
+}
+
+func petitionDeepLinkURLFromValues(serverBase, deepLinkBase, petitionID string) string {
+	upstream, err := url.Parse(strings.TrimSpace(serverBase))
+	if err != nil || upstream.Host == "" {
+		return joinURL(strings.TrimSpace(deepLinkBase), "/passport")
+	}
+	payload := upstream.Host + "|" + strings.TrimSpace(petitionID)
+	params := url.Values{}
+	params.Set("sign", base64.RawURLEncoding.EncodeToString([]byte(payload)))
+	return joinURL(strings.TrimSpace(deepLinkBase), "/passport") + "?" + params.Encode()
 }
 
 func (s *Server) handleRequestConfig(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +76,7 @@ func (s *Server) handleRequestConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRequestQR(w http.ResponseWriter, r *http.Request) {
-	var body []byte
+	var payloadJSON []byte
 
 	// Check if a pre-built payload is provided as base64
 	if payloadB64 := r.URL.Query().Get("payload"); payloadB64 != "" {
@@ -82,7 +95,7 @@ func (s *Server) handleRequestQR(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid base64 payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		body = decoded
+		payloadJSON = decoded
 	} else {
 		// Build payload from individual query parameters
 		payload, err := buildPayloadFromRequest(r)
@@ -90,14 +103,14 @@ func (s *Server) handleRequestQR(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		body, err = json.Marshal(payload)
+		payloadJSON, err = json.Marshal(payload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	png, err := qrcode.Encode(string(body), qrcode.Medium, 256)
+	png, err := qrcode.Encode(requestDeepLinkURL(r, payloadJSON), qrcode.Medium, 256)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -114,15 +127,17 @@ func (s *Server) handleRequestPage(w http.ResponseWriter, r *http.Request) {
 	}
 	pretty, _ := json.MarshalIndent(payload, "", "  ")
 	data := requestPageData{
-		Title:          "Vocdoni Passport Request",
-		PayloadJSON:    string(pretty),
-		PayloadB64:     base64.RawURLEncoding.EncodeToString(pretty),
-		AggregateURL:   payload.AggregateURL,
-		APKDownloadURL: baseURL(r) + "/downloads/app-release.apk",
-		Purpose:        payload.Service.Purpose,
-		Scope:          payload.Service.Scope,
-		PetitionID:     payload.PetitionID,
-		Name:           payload.Service.Name,
+		Title:               "Vocdoni Passport Request",
+		PayloadJSON:         string(pretty),
+		PayloadB64:          base64.RawURLEncoding.EncodeToString(pretty),
+		AggregateURL:        payload.AggregateURL,
+		APKDownloadURL:      joinURL(baseURL(r), "/downloads/app-release.apk"),
+		PetitionLinkBaseURL: appLinkBaseURL(r),
+		PetitionViewBaseURL: baseURL(r),
+		Purpose:             payload.Service.Purpose,
+		Scope:               payload.Service.Scope,
+		PetitionID:          payload.PetitionID,
+		Name:                payload.Service.Name,
 	}
 	if payload.Query != nil {
 		if v := getNestedStringSlice(payload.Query, "nationality", "in"); len(v) > 0 {
@@ -151,7 +166,7 @@ func (s *Server) handleRequestPage(w http.ResponseWriter, r *http.Request) {
 func buildPayloadFromRequest(r *http.Request) (*ProofRequestPayload, error) {
 	aggregateURL := strings.TrimSpace(r.URL.Query().Get("aggregateUrl"))
 	if aggregateURL == "" {
-		aggregateURL = baseURL(r) + "/api/proofs/aggregate"
+		aggregateURL = joinURL(baseURL(r), "/api/proofs/aggregate")
 	}
 	name := firstNonEmpty(r.URL.Query().Get("name"), "Vocdoni Passport")
 	purpose := firstNonEmpty(r.URL.Query().Get("purpose"), "Generate a passport proof for this service")
@@ -263,6 +278,11 @@ func configuredPublicBaseURL() string {
 	return strings.TrimRight(value, "/")
 }
 
+func configuredDeepLinkBaseURL() string {
+	value := strings.TrimSpace(os.Getenv("VOCDONI_DEEPLINK_BASE_URL"))
+	return strings.TrimRight(value, "/")
+}
+
 func publicHost(r *http.Request) string {
 	if configured := configuredPublicBaseURL(); configured != "" {
 		parsed, err := url.Parse(configured)
@@ -271,6 +291,20 @@ func publicHost(r *http.Request) string {
 		}
 	}
 	return hostOnly(r.Host)
+}
+
+func appLinkBaseURL(r *http.Request) string {
+	if configured := configuredDeepLinkBaseURL(); configured != "" {
+		return configured
+	}
+	return baseURL(r)
+}
+
+func joinURL(base, path string) string {
+	if strings.TrimSpace(base) == "" {
+		return path
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
 func hostOnly(hostport string) string {
@@ -521,6 +555,8 @@ var requestPageTemplate = template.Must(template.New("request-page").Parse(`<!do
 
         <input type="hidden" id="aggregateUrl" value="{{.AggregateURL}}" />
         <input type="hidden" id="petitionId" value="{{.PetitionID}}" />
+        <input type="hidden" id="petitionLinkBaseUrl" value="{{.PetitionLinkBaseURL}}" />
+        <input type="hidden" id="petitionViewBaseUrl" value="{{.PetitionViewBaseURL}}" />
       </div>
     </div>
   </div>
@@ -687,6 +723,25 @@ function getSelectedDisclosures() {
   return Array.from(selectedDisclosures);
 }
 
+function encodeBase64Url(value) {
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function buildPetitionDeepLinkUrl(petitionId) {
+  const petitionLinkBaseUrl = document.getElementById('petitionLinkBaseUrl').value.trim() || window.location.origin;
+  const petitionViewBaseUrl = document.getElementById('petitionViewBaseUrl').value.trim() || window.location.origin;
+
+  let serverHost;
+  try {
+    serverHost = new URL(petitionViewBaseUrl).host;
+  } catch {
+    serverHost = petitionViewBaseUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  }
+
+  const sign = encodeBase64Url(serverHost + '|' + petitionId);
+  return petitionLinkBaseUrl.replace(/\/$/, '') + '/passport?sign=' + encodeURIComponent(sign);
+}
+
 function buildPayload() {
   const payload = {
     kind: 'vocdoni-passport-request',
@@ -744,6 +799,7 @@ function render() {
   document.getElementById('payload').value = json;
   
   const petitionId = document.getElementById('petitionId').value.trim();
+  const petitionViewBaseUrl = document.getElementById('petitionViewBaseUrl').value.trim() || window.location.origin;
   if (petitionId) {
     // Petition created - show QR code
     document.getElementById('qrPlaceholder').style.display = 'none';
@@ -751,7 +807,7 @@ function render() {
     document.getElementById('qr').src = '/api/petition-qr.png?id=' + encodeURIComponent(petitionId);
     document.getElementById('qrHint').textContent = 'Scan with Vocdoni Passport app to sign';
     document.getElementById('qrActions').style.display = 'block';
-    document.getElementById('viewPetitionBtn').href = '/petition/' + petitionId;
+    document.getElementById('viewPetitionBtn').href = petitionViewBaseUrl.replace(/\/$/, '') + '/petition/' + encodeURIComponent(petitionId);
   } else {
     // No petition created yet - show placeholder
     document.getElementById('qrPlaceholder').style.display = 'flex';
@@ -788,7 +844,7 @@ async function copyPetitionLink() {
     showStatus('error', '❌ Create a petition first');
     return;
   }
-  const url = window.location.origin + '/petition/' + petitionId;
+  const url = buildPetitionDeepLinkUrl(petitionId);
   try {
     await navigator.clipboard.writeText(url);
     showStatus('info', '📋 Petition link copied to clipboard!');
@@ -957,18 +1013,18 @@ var petitionPageTemplate = template.Must(template.New("petition-page").Parse(`<!
       <img id="qr" src="/api/petition-qr.png?id={{.Petition.PetitionID}}" alt="QR code" style="margin:0 auto;" />
       <p class="muted">Open the Vocdoni Passport app and scan this QR code to sign</p>
       <div class="btn-group" style="justify-content:center; margin-top:16px; gap:8px;">
-        <button class="btn btn-secondary" onclick="copyLink()">📋 Copy Link</button>
+        <button class="btn btn-secondary" type="button" onclick="copyLink(this)">📋 Copy Link</button>
         <a class="btn btn-primary" href="{{.BaseURL}}/downloads/app-release.apk">📥 Download App</a>
       </div>
+      <input type="hidden" id="deepLinkUrl" value="{{.DeepLinkURL}}" />
     </div>
     <script>
-    function copyLink() {
-      const url = window.location.href;
+    function copyLink(button) {
+      const url = document.getElementById('deepLinkUrl').value;
       navigator.clipboard.writeText(url).then(() => {
-        const btn = event.target;
-        const original = btn.textContent;
-        btn.textContent = '✓ Copied!';
-        setTimeout(() => { btn.textContent = original; }, 2000);
+        const original = button.textContent;
+        button.textContent = '✓ Copied!';
+        setTimeout(() => { button.textContent = original; }, 2000);
       }).catch(() => {
         alert('Failed to copy link');
       });

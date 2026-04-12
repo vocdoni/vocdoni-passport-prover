@@ -111,6 +111,7 @@ func main() {
 	logger.Info().
 		Str("listen_addr", *listenAddr).
 		Str("public_base_url", envOrDefault("VOCDONI_PUBLIC_BASE_URL", "")).
+		Str("deeplink_base_url", envOrDefault("VOCDONI_DEEPLINK_BASE_URL", "")).
 		Str("apk_path", *apkPath).
 		Str("prover_binary", *proverBinaryPath).
 		Str("bb_binary", *bbBinaryPath).

@@ -8,6 +8,7 @@ This server provides:
 
 - **Operator Dashboard**: Web UI for creating and managing petitions
 - **Mobile API**: Endpoints for the Vocdoni Passport mobile app
+- **App Links / Universal Links**: Serves `vocdoni.link` verification files and petition deep links
 - **Proof Aggregation**: Orchestrates outer proof generation from inner proofs
 - **APK Distribution**: Serves the Android app for easy installation
 
@@ -87,6 +88,7 @@ Copy `.env.example` to `.env` and configure:
 ```bash
 # Required: Public URL for QR codes and mobile app
 VOCDONI_PUBLIC_BASE_URL=https://your-domain.com
+VOCDONI_DEEPLINK_BASE_URL=https://vocdoni.link
 
 # Server settings
 VOCDONI_SERVER_LISTEN=0.0.0.0:8080
@@ -103,6 +105,23 @@ VOCDONI_PROVER_LOW_MEMORY_MODE=false
 ```
 
 See `.env.example` for all available options.
+
+### `vocdoni.link` support
+
+When `VOCDONI_DEEPLINK_BASE_URL` points to `https://vocdoni.link`, the server:
+
+- generates petition QR codes that contain `https://vocdoni.link/passport?sign=<base64url(host|petitionId)>`
+- generates generic request QR codes that contain `https://vocdoni.link/passport?request=<base64url(payload-json)>`
+- copies and displays `vocdoni.link` petition URLs in the operator dashboard
+
+The mobile app opens `vocdoni.link`, reads the `/passport` namespace, and then:
+
+- if the link contains `sign`, it decodes the compact upstream host and petition ID, reconstructs `https://<host>/petition/<id>`, and fetches the request payload from the real server
+- if the link contains `request`, it decodes the embedded request payload directly
+
+This keeps `vocdoni.link` as the verified app-link domain without requiring it to reverse proxy the whole proving service.
+
+App-link verification for `vocdoni.link` is handled outside `server-go`, for example by a Cloudflare Worker serving the `/.well-known/...` files and browser redirects for deeplinks.
 
 ## Directory Structure
 

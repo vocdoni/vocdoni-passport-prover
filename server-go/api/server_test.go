@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -36,10 +40,12 @@ func TestHealthEndpoint(t *testing.T) {
 
 func TestBuildPetitionPayload(t *testing.T) {
 	tests := []struct {
-		name     string
-		petition *storage.Petition
-		baseURL  string
-		wantURL  string
+		name             string
+		petition         *storage.Petition
+		aggregateBaseURL string
+		petitionBaseURL  string
+		wantAggregateURL string
+		wantInfoURL      string
 	}{
 		{
 			name: "basic petition",
@@ -52,8 +58,10 @@ func TestBuildPetitionPayload(t *testing.T) {
 					"nationality": map[string]any{"disclose": true},
 				},
 			},
-			baseURL: "https://example.com",
-			wantURL: "https://example.com/api/proofs/aggregate",
+			aggregateBaseURL: "https://example.com",
+			petitionBaseURL:  "https://example.com",
+			wantAggregateURL: "https://example.com/api/proofs/aggregate",
+			wantInfoURL:      "https://example.com/petition/test-123",
 		},
 		{
 			name: "petition with trailing slash",
@@ -64,17 +72,19 @@ func TestBuildPetitionPayload(t *testing.T) {
 				Scope:      "test",
 				Query:      map[string]any{},
 			},
-			baseURL: "https://example.com/",
-			wantURL: "https://example.com//api/proofs/aggregate",
+			aggregateBaseURL: "https://example.com/",
+			petitionBaseURL:  "https://example.com/",
+			wantAggregateURL: "https://example.com/api/proofs/aggregate",
+			wantInfoURL:      "https://example.com/petition/test-456",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := buildPetitionPayload(tt.petition, tt.baseURL)
+			payload := buildPetitionPayload(tt.petition, tt.aggregateBaseURL, tt.petitionBaseURL)
 
-			if payload["kind"] != "proof-request" {
-				t.Errorf("expected kind 'proof-request', got '%v'", payload["kind"])
+			if payload["kind"] != "vocdoni-passport-request" {
+				t.Errorf("expected kind 'vocdoni-passport-request', got '%v'", payload["kind"])
 			}
 
 			if payload["version"] != 1 {
@@ -86,8 +96,17 @@ func TestBuildPetitionPayload(t *testing.T) {
 				t.Fatal("aggregateUrl is not a string")
 			}
 
-			if aggregateURL != tt.wantURL {
-				t.Errorf("expected aggregateUrl '%s', got '%s'", tt.wantURL, aggregateURL)
+			if aggregateURL != tt.wantAggregateURL {
+				t.Errorf("expected aggregateUrl '%s', got '%s'", tt.wantAggregateURL, aggregateURL)
+			}
+
+			infoURL, ok := payload["infoUrl"].(string)
+			if !ok {
+				t.Fatal("infoUrl is not a string")
+			}
+
+			if infoURL != tt.wantInfoURL {
+				t.Errorf("expected infoUrl '%s', got '%s'", tt.wantInfoURL, infoURL)
 			}
 
 			if payload["petitionId"] != tt.petition.PetitionID {
@@ -103,6 +122,142 @@ func TestBuildPetitionPayload(t *testing.T) {
 				t.Errorf("expected service name '%s', got '%v'", tt.petition.Name, service["name"])
 			}
 		})
+	}
+}
+
+func TestAppLinkBaseURL(t *testing.T) {
+	t.Setenv("VOCDONI_PUBLIC_BASE_URL", "https://api.example.com")
+	t.Setenv("VOCDONI_DEEPLINK_BASE_URL", "https://vocdoni.link")
+
+	req := httptest.NewRequest(http.MethodGet, "/petition/test-123", nil)
+	req.Host = "ignored.example.com"
+
+	if got := appLinkBaseURL(req); got != "https://vocdoni.link" {
+		t.Fatalf("expected deeplink base https://vocdoni.link, got %s", got)
+	}
+}
+
+func TestPetitionDeepLinkURL(t *testing.T) {
+	t.Setenv("VOCDONI_PUBLIC_BASE_URL", "https://passport-sign.vocdoni.net")
+	t.Setenv("VOCDONI_DEEPLINK_BASE_URL", "https://vocdoni.link")
+
+	req := httptest.NewRequest(http.MethodGet, "/petition/test-123", nil)
+	req.Host = "ignored.example.com"
+
+	got := petitionDeepLinkURL(req, "test-123")
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("failed to parse deep link: %v", err)
+	}
+
+	if parsed.Scheme != "https" || parsed.Host != "vocdoni.link" || parsed.Path != "/passport" {
+		t.Fatalf("unexpected deep link URL %s", got)
+	}
+
+	sign := parsed.Query().Get("sign")
+	if sign == "" {
+		t.Fatalf("expected sign query parameter in %s", got)
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(sign)
+	if err != nil {
+		t.Fatalf("failed to decode sign payload: %v", err)
+	}
+
+	if string(decoded) != "passport-sign.vocdoni.net|test-123" {
+		t.Fatalf("unexpected sign payload %q", string(decoded))
+	}
+}
+
+func TestPetitionDeepLinkURLFromValues(t *testing.T) {
+	got := petitionDeepLinkURLFromValues("https://passport-sign.vocdoni.net", "https://vocdoni.link", "test-456")
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("failed to parse deep link: %v", err)
+	}
+
+	if parsed.Scheme != "https" || parsed.Host != "vocdoni.link" || parsed.Path != "/passport" {
+		t.Fatalf("unexpected deep link URL %s", got)
+	}
+
+	sign := parsed.Query().Get("sign")
+	if sign == "" {
+		t.Fatalf("expected sign query parameter in %s", got)
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(sign)
+	if err != nil {
+		t.Fatalf("failed to decode sign payload: %v", err)
+	}
+
+	if string(decoded) != "passport-sign.vocdoni.net|test-456" {
+		t.Fatalf("unexpected sign payload %q", string(decoded))
+	}
+}
+
+func TestRequestDeepLinkURL(t *testing.T) {
+	t.Setenv("VOCDONI_DEEPLINK_BASE_URL", "https://vocdoni.link")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/request-qr.png", nil)
+	payload := []byte(`{"kind":"vocdoni-passport-request","aggregateUrl":"https://passport-sign.vocdoni.net/api/proofs/aggregate"}`)
+
+	got := requestDeepLinkURL(req, payload)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("failed to parse deep link: %v", err)
+	}
+
+	if parsed.Scheme != "https" || parsed.Host != "vocdoni.link" || parsed.Path != "/passport" {
+		t.Fatalf("unexpected request deep link URL %s", got)
+	}
+
+	requestParam := parsed.Query().Get("request")
+	if requestParam == "" {
+		t.Fatalf("expected request query parameter in %s", got)
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(requestParam)
+	if err != nil {
+		t.Fatalf("failed to decode request payload: %v", err)
+	}
+
+	if string(decoded) != string(payload) {
+		t.Fatalf("unexpected request payload %q", string(decoded))
+	}
+}
+
+func TestPetitionPageTemplateUsesDeepLinkCopy(t *testing.T) {
+	var out bytes.Buffer
+	data := petitionPageData{
+		Petition: &storage.Petition{
+			PetitionID:      "petition-123",
+			Name:            "Test Petition",
+			Purpose:         "Testing",
+			Scope:           "test-scope",
+			DisclosedFields: []string{"nationality"},
+			SignatureCount:  3,
+		},
+		TotalSignatures: 3,
+		BaseURL:         "https://passport-sign.vocdoni.net",
+		DeepLinkURL:     "https://vocdoni.link/passport?sign=abc123",
+	}
+
+	if err := petitionPageTemplate.Execute(&out, data); err != nil {
+		t.Fatalf("failed to render petition page template: %v", err)
+	}
+
+	html := out.String()
+	if !strings.Contains(html, `id="deepLinkUrl" value="https://vocdoni.link/passport?sign=abc123"`) {
+		t.Fatalf("expected petition page to include deeplink URL, got %s", html)
+	}
+	if strings.Contains(html, `window.location.href`) {
+		t.Fatalf("petition page should not copy the browser URL anymore")
+	}
+	if !strings.Contains(html, `onclick="copyLink(this)"`) {
+		t.Fatalf("petition page copy button should pass the button element")
+	}
+	if strings.Contains(html, `printf "%q"`) {
+		t.Fatalf("petition page should not embed the deeplink as a quoted JS literal")
 	}
 }
 
