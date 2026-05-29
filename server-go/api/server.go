@@ -309,9 +309,11 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Submit census registration if configured
-	if s.censusSubmitter != nil && signerAddress != "" && resp.Nullifier != "" {
-		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier)
+	// Submit census registration if configured.
+	// The contract verifies the outer proof on-chain; we pass the proof bytes and
+	// public inputs directly from the aggregation response.
+	if s.censusSubmitter != nil && signerAddress != "" && resp.Proof != "" && len(resp.PublicInputs) > 0 {
+		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Proof, resp.PublicInputs)
 		if censusErr != nil {
 			s.logger.Error().
 				Err(censusErr).

@@ -3,6 +3,7 @@ package census
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -19,19 +20,20 @@ import (
 type Config struct {
 	RPCURL          string
 	PrivateKeyHex   string // funded wallet private key, hex without 0x prefix
-	ContractAddress string // TrustedCensus contract address on Sepolia
+	ContractAddress string // ZKPassportCensus contract address on Sepolia
 	ChainID         int64  // 11155111 for Sepolia
 }
 
-// Submitter sends register(address,uint256) transactions to a TrustedCensus contract.
+// Submitter sends register(address,bytes,bytes32[]) transactions to a ZKPassportCensus contract.
+// The contract verifies the UltraHonk proof on-chain; the backend only relays it.
 type Submitter struct {
 	client   *ethclient.Client
 	key      *ecdsa.PrivateKey
 	from     common.Address
 	contract common.Address
 	chainID  *big.Int
-	args     abi.Arguments // (address, uint256) for ABI encoding
-	selector [4]byte       // keccak256("register(address,uint256)")[0:4]
+	args     abi.Arguments // (address, bytes, bytes32[]) for ABI encoding
+	selector [4]byte       // keccak256("register(address,bytes,bytes32[])")[0:4]
 
 	nonceMu sync.Mutex
 	nonce   uint64
@@ -50,26 +52,29 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 		return nil, fmt.Errorf("parse private key: %w", err)
 	}
 	from := crypto.PubkeyToAddress(privateKey.PublicKey)
-
 	contract := common.HexToAddress(cfg.ContractAddress)
 	chainID := big.NewInt(cfg.ChainID)
 
-	// Build ABI argument types for register(address, uint256)
 	addressTy, err := abi.NewType("address", "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build address abi type: %w", err)
 	}
-	uint256Ty, err := abi.NewType("uint256", "", nil)
+	bytesTy, err := abi.NewType("bytes", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("build uint256 abi type: %w", err)
+		return nil, fmt.Errorf("build bytes abi type: %w", err)
+	}
+	bytes32SliceTy, err := abi.NewType("bytes32[]", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build bytes32[] abi type: %w", err)
 	}
 	args := abi.Arguments{
 		{Type: addressTy},
-		{Type: uint256Ty},
+		{Type: bytesTy},
+		{Type: bytes32SliceTy},
 	}
 
-	// Function selector: keccak256("register(address,uint256)")[0:4]
-	sig := crypto.Keccak256([]byte("register(address,uint256)"))
+	// Function selector: keccak256("register(address,bytes,bytes32[])")[0:4]
+	sig := crypto.Keccak256([]byte("register(address,bytes,bytes32[])"))
 	var selector [4]byte
 	copy(selector[:], sig[:4])
 
@@ -90,18 +95,28 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 	}, nil
 }
 
-// Register submits a register(address, nullifier) transaction to the census contract.
-// address is the voter's Ethereum address ("0x..."), nullifier is a hex field element.
+// Register submits a register(address, proof, publicInputs) transaction to the census
+// contract. The contract verifies the UltraHonk outer proof on-chain.
+//
+//   - account:      voter's Ethereum address (hex, e.g. "0xABCD...")
+//   - proof:        outer proof hex string from the prover-cli (with or without 0x prefix)
+//   - publicInputs: 8 hex strings, each representing a bytes32 field element
+//
 // Returns the transaction hash on success.
-func (s *Submitter) Register(ctx context.Context, address, nullifier string) (string, error) {
-	addr := common.HexToAddress(address)
+func (s *Submitter) Register(ctx context.Context, account, proof string, publicInputs []string) (string, error) {
+	addr := common.HexToAddress(account)
 
-	nullifierInt, ok := new(big.Int).SetString(strings.TrimPrefix(nullifier, "0x"), 16)
-	if !ok {
-		return "", fmt.Errorf("parse nullifier %q", nullifier)
+	proofBytes, err := decodeHex(proof)
+	if err != nil {
+		return "", fmt.Errorf("decode proof: %w", err)
 	}
 
-	packed, err := s.args.Pack(addr, nullifierInt)
+	pi, err := decodePublicInputs(publicInputs)
+	if err != nil {
+		return "", fmt.Errorf("decode public inputs: %w", err)
+	}
+
+	packed, err := s.args.Pack(addr, proofBytes, pi)
 	if err != nil {
 		return "", fmt.Errorf("abi pack: %w", err)
 	}
@@ -111,12 +126,14 @@ func (s *Submitter) Register(ctx context.Context, address, nullifier string) (st
 	if err != nil {
 		return "", fmt.Errorf("suggest gas tip cap: %w", err)
 	}
-	// base fee headroom: tip + 2x base fee is a common heuristic
 	header, err := s.client.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("fetch latest header: %w", err)
 	}
 	gasFeeCap := new(big.Int).Add(gasTipCap, new(big.Int).Mul(header.BaseFee, big.NewInt(2)))
+
+	// Use a higher gas limit: UltraHonk verification uses ~500k–1M gas.
+	const verifyGasLimit = 1_500_000
 
 	s.nonceMu.Lock()
 	nonce := s.nonce
@@ -126,7 +143,7 @@ func (s *Submitter) Register(ctx context.Context, address, nullifier string) (st
 		Nonce:     nonce,
 		GasTipCap: gasTipCap,
 		GasFeeCap: gasFeeCap,
-		Gas:       200_000,
+		Gas:       verifyGasLimit,
 		To:        &s.contract,
 		Data:      callData,
 	}
@@ -139,7 +156,6 @@ func (s *Submitter) Register(ctx context.Context, address, nullifier string) (st
 	}
 
 	if sendErr := s.client.SendTransaction(ctx, signedTx); sendErr != nil {
-		// Refresh nonce from chain so next call uses a valid nonce
 		if refreshed, refreshErr := s.client.PendingNonceAt(ctx, s.from); refreshErr == nil {
 			s.nonce = refreshed
 		}
@@ -152,7 +168,38 @@ func (s *Submitter) Register(ctx context.Context, address, nullifier string) (st
 	return signedTx.Hash().Hex(), nil
 }
 
-// FromAddress returns the address of the funded wallet.
+// FromAddress returns the hex address of the funded wallet.
 func (s *Submitter) FromAddress() string {
 	return s.from.Hex()
+}
+
+// decodeHex decodes a hex string (with or without 0x prefix) to bytes.
+func decodeHex(h string) ([]byte, error) {
+	h = strings.TrimPrefix(h, "0x")
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// decodePublicInputs converts a slice of hex strings to [][32]byte for ABI encoding.
+func decodePublicInputs(inputs []string) ([][32]byte, error) {
+	result := make([][32]byte, len(inputs))
+	for i, s := range inputs {
+		s = strings.TrimPrefix(s, "0x")
+		// Pad to 64 hex chars (32 bytes) if needed
+		if len(s) < 64 {
+			s = strings.Repeat("0", 64-len(s)) + s
+		}
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			return nil, fmt.Errorf("public input [%d]: %w", i, err)
+		}
+		if len(b) != 32 {
+			return nil, fmt.Errorf("public input [%d]: expected 32 bytes, got %d", i, len(b))
+		}
+		copy(result[i][:], b)
+	}
+	return result, nil
 }
