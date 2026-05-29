@@ -37,13 +37,15 @@ type AggregateRequest struct {
 }
 
 type AggregateResponse struct {
-	Version      string            `json:"version"`
-	Name         string            `json:"name"`
-	Proof        string            `json:"proof"`
-	PublicInputs []string          `json:"publicInputs"`
-	VkeyHash     string            `json:"vkeyHash"`
-	Nullifier    string            `json:"nullifier,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	Version           string            `json:"version"`
+	Name              string            `json:"name"`
+	Proof             string            `json:"proof"`
+	PublicInputs      []string          `json:"publicInputs"`
+	VkeyHash          string            `json:"vkeyHash"`
+	Nullifier         string            `json:"nullifier,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	TxHash            string            `json:"txHash,omitempty"`
+	RegisteredAddress string            `json:"registeredAddress,omitempty"`
 }
 
 type aggregateCLIResponse struct {

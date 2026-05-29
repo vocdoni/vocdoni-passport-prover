@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog"
 	qrcode "github.com/skip2/go-qrcode"
+	"github.com/vocdoni/vocdoni-passport-prover/server-go/census"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/presets"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/proving"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/storage"
@@ -37,21 +38,23 @@ func resolveVersion() string {
 }
 
 type Server struct {
-	httpServer     *http.Server
-	logger         zerolog.Logger
-	provingService *proving.Service
-	storage        *storage.MongoDB
-	apkPath        string
-	version        string
+	httpServer      *http.Server
+	logger          zerolog.Logger
+	provingService  *proving.Service
+	storage         *storage.MongoDB
+	censusSubmitter *census.Submitter
+	apkPath         string
+	version         string
 }
 
-func NewServer(listenAddr string, provingService *proving.Service, db *storage.MongoDB, apkPath string, logger zerolog.Logger) *Server {
+func NewServer(listenAddr string, provingService *proving.Service, db *storage.MongoDB, censusSubmitter *census.Submitter, apkPath string, logger zerolog.Logger) *Server {
 	s := &Server{
-		logger:         logger.With().Str("component", "http").Logger(),
-		provingService: provingService,
-		storage:        db,
-		apkPath:        strings.TrimSpace(apkPath),
-		version:        resolveVersion(),
+		logger:          logger.With().Str("component", "http").Logger(),
+		provingService:  provingService,
+		storage:         db,
+		censusSubmitter: censusSubmitter,
+		apkPath:         strings.TrimSpace(apkPath),
+		version:         resolveVersion(),
 	}
 
 	mux := http.NewServeMux()
@@ -303,6 +306,26 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 				Str("signer_address", signerAddress).
 				Strs("disclosed_fields", disclosedFields).
 				Msg("signature saved")
+		}
+	}
+
+	// Submit census registration if configured
+	if s.censusSubmitter != nil && signerAddress != "" && resp.Nullifier != "" {
+		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier)
+		if censusErr != nil {
+			s.logger.Error().
+				Err(censusErr).
+				Str("nullifier", resp.Nullifier).
+				Str("signer_address", signerAddress).
+				Msg("census registration tx failed (proof aggregated and nullifier saved)")
+		} else {
+			resp.TxHash = txHash
+			resp.RegisteredAddress = signerAddress
+			s.logger.Info().
+				Str("tx_hash", txHash).
+				Str("registered_address", signerAddress).
+				Str("nullifier", resp.Nullifier).
+				Msg("census registration tx submitted")
 		}
 	}
 
