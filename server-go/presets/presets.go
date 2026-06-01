@@ -103,7 +103,7 @@ func GetPresetByCountry(countryCode string) *CountryPreset {
 	// deterministic tiebreak by ID, so the result does not depend on Go's randomized
 	// map iteration order.
 	var best *CountryPreset
-	for _, preset := range loadedConfig.Presets {
+	for _, preset := range ListPresets() {
 		for _, country := range preset.Countries {
 			if country != countryCode {
 				continue
