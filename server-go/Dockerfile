@@ -114,28 +114,17 @@ RUN mkdir -p /opt/bb-runtime-libs && \
 
 FROM node:20-bookworm AS zkp-builder
 
-# zkpassport-packages at @zkpassport/utils 0.36.0 (matches the app + circuits 0.18.0).
-ARG ZKPASSPORT_PACKAGES_REF=ac7c9d84777a7fdf9375031ae37e39dd43655a9f
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl unzip ca-certificates git \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV BUN_INSTALL=/opt/bun
-ENV PATH="/opt/bun/bin:${PATH}"
-
-RUN curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.1
-
-WORKDIR /src
-RUN git clone https://github.com/zkpassport/zkpassport-packages /src/zkpassport-packages \
-    && cd /src/zkpassport-packages \
-    && git checkout ${ZKPASSPORT_PACKAGES_REF}
-
+# Use the PUBLISHED @zkpassport/utils package (the exact build the mobile app uses)
+# rather than building the monorepo from source. utils 0.36.0's oprf submodule imports
+# @taceo/oprf-core, which is not declared as a dependency and therefore cannot be
+# resolved in a clean from-source build. The server's aggregate/outer-input scripts
+# only need the packaged dist/cjs plus its runtime deps. Must match the app's version.
+ARG ZKPASSPORT_UTILS_VERSION=0.36.0
 WORKDIR /src/zkpassport-packages
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile
-
-RUN cd packages/zkpassport-utils && bun run build
+RUN npm init -y >/dev/null 2>&1 \
+    && npm install --no-audit --no-fund "@zkpassport/utils@${ZKPASSPORT_UTILS_VERSION}" \
+    && mkdir -p packages/zkpassport-utils/node_modules \
+    && cp -r node_modules/@zkpassport/utils/dist packages/zkpassport-utils/dist
 
 # =============================================================================
 # Stage 3: Build prover-cli (Rust)
