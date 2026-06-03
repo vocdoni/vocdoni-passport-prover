@@ -98,12 +98,26 @@ func GetPresetByCountry(countryCode string) *CountryPreset {
 	if loadedConfig == nil {
 		return nil
 	}
+	// A country can be listed by several presets (e.g. ESP is in both "esp_dni" and
+	// "eu_passport"). Pick the most specific match (fewest countries), with a
+	// deterministic tiebreak by ID, so the result does not depend on Go's randomized
+	// map iteration order.
+	var best *CountryPreset
 	for _, preset := range loadedConfig.Presets {
 		for _, country := range preset.Countries {
-			if country == countryCode {
-				return preset
+			if country != countryCode {
+				continue
 			}
+			if best == nil ||
+				len(preset.Countries) < len(best.Countries) ||
+				(len(preset.Countries) == len(best.Countries) && preset.ID < best.ID) {
+				best = preset
+			}
+			break
 		}
+	}
+	if best != nil {
+		return best
 	}
 	return loadedConfig.Presets["generic"]
 }
