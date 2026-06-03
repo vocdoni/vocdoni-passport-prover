@@ -1,5 +1,5 @@
 {
-  "circuit_version": "0.16.0",
+  "circuit_version": "0.18.0",
   "chain_id": 11155111,
   "service_scope": "vocdoni-passport",
   "service_subscope": "petition",

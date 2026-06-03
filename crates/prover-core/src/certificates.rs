@@ -1,7 +1,7 @@
 use crate::analysis::DocumentAnalysis;
 use crate::config::CompatibilityMatrix;
 use crate::resolution::{
-    DocumentCircuitContext, HashAlgorithmToken, SignatureCircuitSpec, SignatureKey,
+    DocumentCircuitContext, SignatureCircuitSpec, SignatureKey,
 };
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
@@ -29,6 +29,11 @@ pub struct PackagedCertificatesFile {
 pub struct PackagedCertificate {
     pub country: String,
     pub signature_algorithm: String,
+    // zkPassport packaged-certificates V1 (testnet, 2026) dropped the per-certificate
+    // `hash_algorithm` field. The CSCA->DSC signing hash now comes from the document
+    // analysis (`dsc_signature_hash`); this stays optional only for backward/round-trip
+    // compatibility with older V0 files.
+    #[serde(default)]
     pub hash_algorithm: String,
     pub public_key: PackagedCertificatePublicKey,
     pub validity: CertificateValidity,
@@ -231,7 +236,9 @@ pub fn derive_document_circuit_context(
         dsc: SignatureCircuitSpec {
             tbs_bucket: analysis.tbs_bucket,
             key: dsc_key,
-            hash: HashAlgorithmToken::normalize(&csca.hash_algorithm),
+            // Hash of the CSCA's signature over the DSC TBS, taken from the document
+            // (DSC certificate signatureAlgorithm) since V1 certs no longer carry it.
+            hash: analysis.dsc_signature_hash.clone(),
         },
         id_data: SignatureCircuitSpec {
             tbs_bucket: analysis.tbs_bucket,
@@ -245,21 +252,16 @@ pub fn derive_document_circuit_context(
 
 fn sort_candidate_certificates(certs: &mut [PackagedCertificate], analysis: &DocumentAnalysis) {
     certs.sort_by_key(|cert| {
-        let signature_score = if cert
+        // V1 certs no longer carry hash_algorithm; rank candidates by signature-algorithm
+        // match only (subject/authority key identifier matching is applied upstream).
+        if cert
             .signature_algorithm
             .eq_ignore_ascii_case(&analysis.dsc_parent_signature_algorithm)
         {
             0
         } else {
             1
-        };
-        let hash_score =
-            if HashAlgorithmToken::normalize(&cert.hash_algorithm) == analysis.dsc_signature_hash {
-                0
-            } else {
-                1
-            };
-        (signature_score, hash_score)
+        }
     });
 }
 

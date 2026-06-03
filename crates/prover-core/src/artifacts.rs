@@ -90,7 +90,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("circuits")).expect("circuits dir");
 
         let manifest = Manifest {
-            version: "0.16.0".to_string(),
+            version: "0.18.0".to_string(),
             root: "0xroot".to_string(),
             circuits: BTreeMap::from([(
                 "demo".to_string(),
@@ -102,8 +102,8 @@ mod tests {
         };
         let circuit = PackagedCircuit {
             name: Some("demo".to_string()),
-            noir_version: Some("1.0.0-beta.14".to_string()),
-            bb_version: Some("2.0.3".to_string()),
+            noir_version: Some("1.0.0-beta.20".to_string()),
+            bb_version: Some("4.2.0-aztecnr-rc.2".to_string()),
             size: Some(42),
             abi: serde_json::json!([]),
             bytecode: "AA==".to_string(),
@@ -124,9 +124,9 @@ mod tests {
         .expect("write circuit");
 
         let store = ArtifactStore::local(dir.path());
-        let loaded_manifest = store.load_manifest("0.16.0").expect("manifest");
+        let loaded_manifest = store.load_manifest("0.18.0").expect("manifest");
         let loaded_circuit = store
-            .load_packaged_circuit("0.16.0", "demo")
+            .load_packaged_circuit("0.18.0", "demo")
             .expect("circuit");
 
         assert_eq!(loaded_manifest.root, "0xroot");

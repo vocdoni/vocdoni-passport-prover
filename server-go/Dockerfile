@@ -25,7 +25,7 @@
 FROM ubuntu:22.04 AS bb-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG AZTEC_PACKAGES_REF=a4f7c39e15e7835c1f5f491168afa4aaac286894
+ARG AZTEC_PACKAGES_REF=a4701a61d886039b6b4e16ab9af3e06f331e2fc9
 ARG BB_TARGET_ARCH=native
 ARG BB_TUNE_ARCH=native
 
@@ -76,7 +76,7 @@ COPY docker/download_bb_crs.sh /tmp/download_bb_crs.sh
 RUN chmod +x /tmp/download_bb_crs.sh && /tmp/download_bb_crs.sh 23 && rm /tmp/download_bb_crs.sh
 
 WORKDIR /src
-RUN git clone https://github.com/zkpassport/aztec-packages /src/aztec-packages \
+RUN git clone https://github.com/AztecProtocol/aztec-packages /src/aztec-packages \
     && cd /src/aztec-packages \
     && git checkout ${AZTEC_PACKAGES_REF}
 
@@ -239,7 +239,7 @@ ENV CRS_PATH=/opt/bb-crs
 ENV VOCDONI_APK_PATH=/opt/vocdoni/downloads/app-release.apk
 ENV VOCDONI_PROVER_BINARY_PATH=/opt/vocdoni/bin/prover-cli
 ENV VOCDONI_WORKSPACE_ROOT=/opt/vocdoni/repos/vocdoni-passport-prover
-ENV VOCDONI_ARTIFACTS_DIR=/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.16.0
+ENV VOCDONI_ARTIFACTS_DIR=/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.18.0
 ENV LD_LIBRARY_PATH=/usr/local/lib/bb-runtime:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
 ENV PATH=/opt/vocdoni/bin:/usr/local/bin:/usr/bin:/bin
 

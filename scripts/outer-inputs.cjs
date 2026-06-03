@@ -78,7 +78,7 @@ async function main() {
   const fixture = readJson(path.join(fixtureDir, 'bundle.json'));
   const manifest = readJson(path.join(artifactsDir, 'manifest.json'));
   const summary = readJson(path.join(proofDir, 'summary.json'));
-  const byHashBase = 'https://circuits2.zkpassport.id/sepolia/by-hash';
+  const byHashBase = 'https://circuits2.zkpassport.id/testnet/by-hash';
 
   const circuits = summary.circuits.map((entry) => entry.circuit_name);
   const dscName = circuits.find((name) => name.startsWith('sig_check_dsc_'));

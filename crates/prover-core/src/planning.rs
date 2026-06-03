@@ -199,7 +199,7 @@ mod tests {
                 document_type: Some("passport".to_string()),
             },
             request: ProofRequest {
-                circuit_version: "0.16.0".to_string(),
+                circuit_version: "0.18.0".to_string(),
                 chain_id: 11155111,
                 service_scope: "vocdoni-passport".to_string(),
                 service_subscope: "petition".to_string(),

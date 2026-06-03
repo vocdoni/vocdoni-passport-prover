@@ -97,7 +97,7 @@ func main() {
 	apkPath := flag.String("apk-path", envOrDefault("VOCDONI_APK_PATH", "/opt/vocdoni/downloads/app-release.apk"), "Path to the Android APK served by the download endpoint")
 	proverBinaryPath := flag.String("prover-binary", envOrDefault("VOCDONI_PROVER_BINARY_PATH", "/opt/vocdoni/bin/prover-cli"), "Path to the prover CLI binary")
 	bbBinaryPath := flag.String("bb-binary", envOrDefault("BB_BINARY_PATH", "/usr/local/bin/bb"), "Path to the zkPassport bb binary")
-	artifactsDir := flag.String("artifacts-dir", envOrDefault("VOCDONI_ARTIFACTS_DIR", "/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.16.0"), "Path to the packaged circuit artifacts directory")
+	artifactsDir := flag.String("artifacts-dir", envOrDefault("VOCDONI_ARTIFACTS_DIR", "/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.18.0"), "Path to the packaged circuit artifacts directory")
 	workspaceRoot := flag.String("workspace-root", envOrDefault("VOCDONI_WORKSPACE_ROOT", "/opt/vocdoni/repos/vocdoni-passport-prover"), "Workspace root used by the prover CLI for scripts and caches")
 	proverLowMemoryMode := flag.Bool("prover-low-memory", envBoolOrDefault("VOCDONI_PROVER_LOW_MEMORY_MODE", true), "Enable low-memory mode for aggregate proving")
 	proverMaxConcurrency := flag.Int("prover-max-concurrency", envIntOrDefault("VOCDONI_PROVER_MAX_CONCURRENCY", 1), "Maximum concurrent aggregate prover jobs")
