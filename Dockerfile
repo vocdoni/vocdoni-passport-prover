@@ -88,6 +88,12 @@ RUN git clone https://github.com/AztecProtocol/aztec-packages /src/aztec-package
 RUN sed -i 's/5ee9a1c8c325658b29867829677c7eb79c433a98/c0334576ed657fb3b3c49e8e61402989fb84146d/' \
     /src/aztec-packages/barretenberg/cpp/cmake/msgpack.cmake
 
+# bb 4.2's nodejs_module is configured via `node -p require('node-addon-api')...` at
+# CMake time. This C++ builder image has no Node, and the server only needs the bb CLI,
+# so exclude the Node addon from the native build (keeps world_state/vm2/ipc).
+RUN sed -i '/add_subdirectory(barretenberg\/nodejs_module)/d' \
+    /src/aztec-packages/barretenberg/cpp/src/CMakeLists.txt
+
 RUN cd /src/aztec-packages/barretenberg/cpp && \
     cmake --preset clang20 \
       -DCMAKE_BUILD_TYPE=Release \
