@@ -90,7 +90,7 @@ RUN cd /src/aztec-packages/barretenberg/cpp && \
       -DTARGET_ARCH=${BB_TARGET_ARCH} \
       -DENABLE_PAR_ALGOS=ON \
       -DMULTITHREADING=ON \
-      -DDISABLE_AZTEC_VM=ON \
+      -DAVM=OFF \
       -DCMAKE_CXX_FLAGS="-O3 -mtune=${BB_TUNE_ARCH}" && \
     cmake --build build --target bb
 
@@ -107,7 +107,8 @@ RUN mkdir -p /opt/bb-runtime-libs && \
 
 FROM node:20-bookworm AS zkp-builder
 
-ARG ZKPASSPORT_PACKAGES_REF=efb013e15c798a8cd36b92ec17585b391731199b
+# zkpassport-packages at @zkpassport/utils 0.36.0 (matches the app + circuits 0.18.0).
+ARG ZKPASSPORT_PACKAGES_REF=ac7c9d84777a7fdf9375031ae37e39dd43655a9f
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl unzip ca-certificates git \
