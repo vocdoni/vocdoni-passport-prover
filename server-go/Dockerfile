@@ -97,6 +97,7 @@ RUN cd /src/aztec-packages/barretenberg/cpp && \
       -DENABLE_PAR_ALGOS=ON \
       -DMULTITHREADING=ON \
       -DAVM=OFF \
+      -DAVM_TRANSPILER_LIB= \
       -DCMAKE_CXX_FLAGS="-O3 -mtune=${BB_TUNE_ARCH}" && \
     cmake --build build --target bb
 
