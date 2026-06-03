@@ -25,7 +25,9 @@ contract OuterCount4LatestTest is Test {
     console.log("public inputs");
     console.log(publicInputs.length);
 
-    assertEq(publicInputs.length, 8, "unexpected public input count");
+    // zkPassport circuits 0.18.0: outer_evm_count_4 exposes 9 real public inputs
+    // (NUMBER_PUBLIC_INPUTS 17 - PAIRING_POINTS_SIZE 8). Was 8 under 0.16.0.
+    assertEq(publicInputs.length, 9, "unexpected public input count");
 
     (bool success, bytes memory returndata) =
       address(verifier).staticcall(abi.encodeCall(IProofVerifier.verify, (proof, publicInputs)));

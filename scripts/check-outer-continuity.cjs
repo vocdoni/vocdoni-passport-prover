@@ -94,7 +94,7 @@ async function main() {
   const outerDir = path.resolve(args['outer-dir'] || 'outputs/latest/outer');
   const proofDir = path.resolve(args['proof-dir'] || 'outputs/latest/proofs');
   const artifactsDir = path.resolve(
-    args['artifacts-dir'] || path.join(PROVER_ROOT, 'artifacts', 'registry', 'minimal-default-0.16.0'),
+    args['artifacts-dir'] || path.join(PROVER_ROOT, 'artifacts', 'registry', 'minimal-default-0.18.0'),
   );
 
   const outerInputs = readJson(path.join(outerDir, 'outer_inputs.json'));

@@ -415,7 +415,7 @@ fn main() -> Result<()> {
                     document_type: Some("passport".to_string()),
                 },
                 request: prover_types::ProofRequest {
-                    circuit_version: "0.16.0".to_string(),
+                    circuit_version: "0.18.0".to_string(),
                     chain_id: 11155111,
                     service_scope: "vocdoni-passport".to_string(),
                     service_subscope: "petition".to_string(),
@@ -663,7 +663,7 @@ fn main() -> Result<()> {
             proof_options.max_storage_usage = max_storage_usage;
 
             eprintln!(
-                "outer: proving {} with zkPassport bb cli v2.0.3 (keccak, disable_zk, no ipa, witness={})",
+                "outer: proving {} with zkPassport bb cli v4.2.0-aztecnr-rc.2 (keccak, disable_zk, no ipa, witness={})",
                 outer_reference.outer_circuit_name,
                 match witness_format {
                     WitnessFormatArg::Legacy => "legacy",
@@ -705,7 +705,7 @@ fn main() -> Result<()> {
             metadata.insert("proof_verified".to_string(), verified.to_string());
             metadata.insert(
                 "prover_backend".to_string(),
-                "zkpassport-bb-cli-v2.0.3".to_string(),
+                "zkpassport-bb-cli-v4.2.0-aztecnr-rc.2".to_string(),
             );
             metadata.insert("oracle_hash".to_string(), "keccak".to_string());
             metadata.insert(
@@ -817,7 +817,7 @@ fn main() -> Result<()> {
             metadata.insert("proof_verified".to_string(), verified.to_string());
             metadata.insert(
                 "prover_backend".to_string(),
-                "zkpassport-bb-cli-v2.0.3".to_string(),
+                "zkpassport-bb-cli-v4.2.0-aztecnr-rc.2".to_string(),
             );
             metadata.insert("oracle_hash".to_string(), "keccak".to_string());
             metadata.insert(

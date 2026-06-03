@@ -1,5 +1,5 @@
-//! Native witness generation using Noir v1.0.0-beta.14 (bincode format).
-//! Compatible with zkpassport circuits v0.16.0.
+//! Native witness generation using Noir v1.0.0-beta.20 (bincode format).
+//! Compatible with zkpassport circuits v0.18.0.
 
 mod ffi;
 

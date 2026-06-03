@@ -21,7 +21,7 @@
 FROM ubuntu:22.04 AS bb-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG AZTEC_PACKAGES_REF=a4f7c39e15e7835c1f5f491168afa4aaac286894
+ARG AZTEC_PACKAGES_REF=a4701a61d886039b6b4e16ab9af3e06f331e2fc9
 ARG BB_TARGET_ARCH=native
 ARG BB_TUNE_ARCH=native
 
@@ -79,7 +79,7 @@ RUN chmod +x /tmp/download_bb_crs.sh && /tmp/download_bb_crs.sh 23 && rm /tmp/do
 
 # Clone and build Barretenberg
 WORKDIR /src
-RUN git clone https://github.com/zkpassport/aztec-packages /src/aztec-packages \
+RUN git clone https://github.com/AztecProtocol/aztec-packages /src/aztec-packages \
     && cd /src/aztec-packages \
     && git checkout ${AZTEC_PACKAGES_REF}
 
@@ -187,7 +187,7 @@ COPY --from=zkp-builder /src/zkpassport-packages/packages/zkpassport-utils/node_
 COPY --from=zkp-builder /src/zkpassport-packages/packages/zkpassport-utils/dist /opt/vocdoni/repos/zkpassport-packages/packages/zkpassport-utils/dist
 
 ENV VOCDONI_WORKSPACE_ROOT=/opt/vocdoni/repos/vocdoni-passport-prover
-ENV VOCDONI_ARTIFACTS_DIR=/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.16.0
+ENV VOCDONI_ARTIFACTS_DIR=/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.18.0
 
 WORKDIR /opt/vocdoni/repos/vocdoni-passport-prover
 

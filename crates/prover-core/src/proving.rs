@@ -262,6 +262,17 @@ fn ensure_bb_binary() -> Result<PathBuf> {
 
     let source_checkout = aztec_source_cache_dir().join("aztec-packages");
     if !source_checkout.exists() {
+        // Derive the fork and tag from the compatibility matrix so the source-build
+        // fallback always matches the pinned bb release (currently
+        // AztecProtocol/aztec-packages @ v4.2.0-aztecnr-rc.2).
+        let matrix = load_compatibility_matrix(&compatibility_matrix_path())?;
+        let fork = if matrix.proving.preferred_fork.trim().is_empty() {
+            "AztecProtocol/aztec-packages".to_string()
+        } else {
+            matrix.proving.preferred_fork.clone()
+        };
+        let clone_url = format!("https://github.com/{fork}");
+        let checkout_ref = format!("v{}", matrix.proving.bb_version);
         fs::create_dir_all(aztec_source_cache_dir()).with_context(|| {
             format!(
                 "failed to create aztec source cache directory: {}",
@@ -271,16 +282,16 @@ fn ensure_bb_binary() -> Result<PathBuf> {
         run_command(
             Command::new("git")
                 .arg("clone")
-                .arg("https://github.com/zkpassport/aztec-packages")
+                .arg(&clone_url)
                 .arg(&source_checkout),
-            "clone zkpassport aztec-packages",
+            "clone aztec-packages",
         )?;
         run_command(
             Command::new("git")
                 .current_dir(&source_checkout)
                 .arg("checkout")
-                .arg("v2.0.3"),
-            "checkout zkpassport aztec-packages ref",
+                .arg(&checkout_ref),
+            "checkout aztec-packages ref",
         )?;
     }
 

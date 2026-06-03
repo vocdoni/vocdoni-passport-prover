@@ -208,7 +208,7 @@ mod tests {
 
     fn manifest_with(names: &[&str]) -> Manifest {
         Manifest {
-            version: "0.16.0".to_string(),
+            version: "0.18.0".to_string(),
             root: "0xroot".to_string(),
             circuits: names
                 .iter()

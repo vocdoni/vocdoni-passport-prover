@@ -171,13 +171,13 @@ cargo run -p prover-cli -- validate-fixture --dir fixtures/examples/minimal
 cargo run -p prover-cli --features native-prover -- \
   prove-fixture-inner \
   --dir /path/to/fixture \
-  --artifacts-dir artifacts/registry/minimal-default-0.16.0
+  --artifacts-dir artifacts/registry/minimal-default-0.18.0
 
 # Generate outer proof
 cargo run -p prover-cli --features native-prover -- \
   prove-fixture-outer \
   --dir /path/to/fixture \
-  --artifacts-dir artifacts/registry/minimal-default-0.16.0
+  --artifacts-dir artifacts/registry/minimal-default-0.18.0
 ```
 
 ## Docker Images
