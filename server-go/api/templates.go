@@ -318,7 +318,7 @@ var aboutPageTemplate = template.Must(template.New("about-page").Parse(`<!doctyp
 
     <div class="footer">
       <p class="footer-logo">
-        Developed with ❤️ by <a href="https://vocdoni.io" target="_blank">Vocdoni.io</a>
+        Version {{.Version}} &mdash; Developed with ❤️ by <a href="https://vocdoni.io" target="_blank">Vocdoni.io</a>
       </p>
       <p class="muted" style="margin-top:8px;">
         Building the future of digital democracy and privacy-preserving identity

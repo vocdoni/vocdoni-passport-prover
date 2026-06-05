@@ -167,6 +167,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 
 FROM golang:1.26-bookworm AS server-builder
 
+ARG GIT_COMMIT=dev
+
 WORKDIR /src/server-go
 COPY server-go/go.mod /src/server-go/go.mod
 COPY server-go/go.sum /src/server-go/go.sum
@@ -176,7 +178,9 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 COPY server-go /src/server-go
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/vocdoni-passport-server ./cmd
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/vocdoni/vocdoni-passport-prover/server-go/api.buildVersion=${GIT_COMMIT}" \
+      -o /out/vocdoni-passport-server ./cmd
 
 # =============================================================================
 # Stage 5: Final runtime image
