@@ -98,7 +98,7 @@ RUN cd /src/aztec-packages/barretenberg/cpp && \
       -DMULTITHREADING=ON \
       -DAVM=OFF \
       -DAVM_TRANSPILER_LIB= \
-      -DCMAKE_CXX_FLAGS="-O3 -mtune=${BB_TUNE_ARCH}" && \
+      -DCMAKE_CXX_FLAGS="-O3 -mtune=${BB_TUNE_ARCH} -fno-inline-functions" && \
     cmake --build build --target bb
 
 # Copy bb runtime libraries into the final image.
