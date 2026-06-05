@@ -99,7 +99,10 @@ func main() {
 	bbBinaryPath := flag.String("bb-binary", envOrDefault("BB_BINARY_PATH", "/usr/local/bin/bb"), "Path to the zkPassport bb binary")
 	artifactsDir := flag.String("artifacts-dir", envOrDefault("VOCDONI_ARTIFACTS_DIR", "/opt/vocdoni/repos/vocdoni-passport-prover/artifacts/registry/minimal-default-0.18.0"), "Path to the packaged circuit artifacts directory")
 	workspaceRoot := flag.String("workspace-root", envOrDefault("VOCDONI_WORKSPACE_ROOT", "/opt/vocdoni/repos/vocdoni-passport-prover"), "Workspace root used by the prover CLI for scripts and caches")
-	proverLowMemoryMode := flag.Bool("prover-low-memory", envBoolOrDefault("VOCDONI_PROVER_LOW_MEMORY_MODE", true), "Enable low-memory mode for aggregate proving")
+	// Default OFF: low-memory mode (bb --slow_low_memory) plus a small storage
+	// budget chokes the 2^22 outer prove and gets it SIGKILL'd on server-class
+	// hosts with ample RAM. Only enable on genuinely memory-constrained deployments.
+	proverLowMemoryMode := flag.Bool("prover-low-memory", envBoolOrDefault("VOCDONI_PROVER_LOW_MEMORY_MODE", false), "Enable low-memory mode for aggregate proving (only for memory-constrained hosts)")
 	proverMaxConcurrency := flag.Int("prover-max-concurrency", envIntOrDefault("VOCDONI_PROVER_MAX_CONCURRENCY", 1), "Maximum concurrent aggregate prover jobs")
 	proverTimeout := flag.Duration("prover-timeout", envDurationOrDefault("VOCDONI_PROVER_TIMEOUT", 20*time.Minute), "Timeout for a single aggregate prover job")
 	flag.Parse()
