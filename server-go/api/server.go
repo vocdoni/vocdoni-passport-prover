@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,12 +20,29 @@ import (
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/storage"
 )
 
+// buildVersion is overridden at link time for Docker builds:
+//
+//	go build -ldflags "-X github.com/vocdoni/vocdoni-passport-prover/server-go/api.buildVersion=<hash>"
+var buildVersion = "dev"
+
+func resolveVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				return s.Value[:7]
+			}
+		}
+	}
+	return buildVersion
+}
+
 type Server struct {
 	httpServer     *http.Server
 	logger         zerolog.Logger
 	provingService *proving.Service
 	storage        *storage.MongoDB
 	apkPath        string
+	version        string
 }
 
 func NewServer(listenAddr string, provingService *proving.Service, db *storage.MongoDB, apkPath string, logger zerolog.Logger) *Server {
@@ -33,6 +51,7 @@ func NewServer(listenAddr string, provingService *proving.Service, db *storage.M
 		provingService: provingService,
 		storage:        db,
 		apkPath:        strings.TrimSpace(apkPath),
+		version:        resolveVersion(),
 	}
 
 	mux := http.NewServeMux()
@@ -778,5 +797,5 @@ type explorePageData struct {
 
 func (s *Server) handleAboutPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = aboutPageTemplate.Execute(w, map[string]string{"BaseURL": baseURL(r)})
+	_ = aboutPageTemplate.Execute(w, map[string]string{"BaseURL": baseURL(r), "Version": s.version})
 }
