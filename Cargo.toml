@@ -14,6 +14,13 @@ members = [
 ]
 resolver = "2"
 
+# NOTE: tried fat LTO + codegen-units=1 to speed the on-device witness solver,
+# but device testing showed ~no measurable gain (RSA-4096 witness ~2749ms vs
+# ~2795ms) while roughly doubling the Docker build (full LTO recompile of all
+# noir/acvm deps x2 targets). Reverted to the default release profile. The
+# witness bottleneck is the Brillig interpreter + gzip round-trip, not cross-
+# crate inlining; revisit only with a profiler-guided change.
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
