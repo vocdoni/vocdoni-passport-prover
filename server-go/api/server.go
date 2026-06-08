@@ -314,10 +314,14 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Submit census registration if configured.
-	// The contract verifies the outer proof on-chain; we pass the proof bytes and
-	// public inputs directly from the aggregation response.
+	// The RootVerifier contract verifies the outer ZKPassport proof on-chain.
 	if s.censusSubmitter != nil && signerAddress != "" && resp.Proof != "" && len(resp.PublicInputs) > 0 {
-		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Proof, resp.PublicInputs)
+		scope, domain, bindChain := extractServiceFields(req.Request)
+		txHash, censusErr := s.censusSubmitter.Register(
+			r.Context(),
+			signerAddress, resp.Proof, resp.VkeyHash, resp.PublicInputs,
+			resp.Version, scope, domain, bindChain,
+		)
 		if censusErr != nil {
 			s.logger.Error().
 				Err(censusErr).
@@ -344,6 +348,19 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		Strs("disclosed_fields", disclosedFields).
 		Msg("aggregate request completed")
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// extractServiceFields pulls scope, domain, and bindChain from the original QR request payload.
+func extractServiceFields(req map[string]any) (scope, domain, bindChain string) {
+	if req == nil {
+		return
+	}
+	if svc, ok := req["service"].(map[string]any); ok {
+		scope, _ = svc["scope"].(string)
+		domain, _ = svc["domain"].(string)
+	}
+	bindChain, _ = req["bindChain"].(string)
+	return
 }
 
 func collectDisclosedFieldsFromQuery(query map[string]any) []string {

@@ -24,6 +24,7 @@ type ProofRequestPayload struct {
 	CensusContract string         `json:"censusContract,omitempty"`
 	Service        RequestService `json:"service"`
 	Query          map[string]any `json:"query,omitempty"`
+	BindChain      string         `json:"bindChain,omitempty"`
 }
 
 type RequestService struct {
@@ -177,6 +178,7 @@ func buildPayloadFromRequest(r *http.Request) (*ProofRequestPayload, error) {
 	petitionID := strings.TrimSpace(r.URL.Query().Get("petitionId"))
 	processID := strings.TrimSpace(r.URL.Query().Get("processId"))
 	censusContract := strings.TrimSpace(r.URL.Query().Get("censusContract"))
+	bindChain := strings.TrimSpace(r.URL.Query().Get("bindChain"))
 	payload := &ProofRequestPayload{
 		Kind:           "vocdoni-passport-request",
 		Version:        1,
@@ -184,6 +186,7 @@ func buildPayloadFromRequest(r *http.Request) (*ProofRequestPayload, error) {
 		PetitionID:     petitionID,
 		ProcessID:      processID,
 		CensusContract: censusContract,
+		BindChain:      bindChain,
 		Service: RequestService{
 			Name:    name,
 			Purpose: purpose,

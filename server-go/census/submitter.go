@@ -3,9 +3,11 @@ package census
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -16,24 +18,96 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+// ProofType.BIND = 8 from @zkpassport/utils
+const proofTypeBind = uint8(8)
+
+// ProofTypeLength[BIND].evm = 509 from @zkpassport/utils
+const bindEvmLength = uint16(509)
+
+// BoundDataIdentifier from @zkpassport/utils
+const (
+	boundDataUserAddress = uint8(1)
+	boundDataChainID     = uint8(2)
+)
+
+// validityPeriodInSeconds for the ZKPassport proof (24 hours).
+const validityPeriodInSeconds = 86400
+
+// known EVM chain IDs, keyed by the chain string used in zkPassport QR payloads.
+var chainIDs = map[string]uint64{
+	"ethereum":         1,
+	"ethereum_mainnet": 1,
+	"ethereum_sepolia": 11155111,
+	"base":             8453,
+	"base_mainnet":     8453,
+	"base_sepolia":     84532,
+}
+
+// Go structs matching the ProofVerificationParams ABI tuple layout.
+// Field names are matched case-insensitively to ABI component names by go-ethereum.
+type serviceConfigABI struct {
+	ValidityPeriodInSeconds *big.Int
+	Domain                  string
+	Scope                   string
+	DevMode                 bool
+}
+
+type proofVerificationDataABI struct {
+	VkeyHash     [32]byte
+	Proof        []byte
+	PublicInputs [][32]byte
+}
+
+type proofVerificationParamsABI struct {
+	Version               [32]byte
+	ProofVerificationData proofVerificationDataABI
+	CommittedInputs       []byte
+	ServiceConfig         serviceConfigABI
+}
+
+// registerABIJSON is the ABI for register(address, ProofVerificationParams).
+const registerABIJSON = `[{
+    "type":"function",
+    "name":"register",
+    "inputs":[
+        {"name":"account","type":"address"},
+        {"name":"params","type":"tuple","components":[
+            {"name":"version","type":"bytes32"},
+            {"name":"proofVerificationData","type":"tuple","components":[
+                {"name":"vkeyHash","type":"bytes32"},
+                {"name":"proof","type":"bytes"},
+                {"name":"publicInputs","type":"bytes32[]"}
+            ]},
+            {"name":"committedInputs","type":"bytes"},
+            {"name":"serviceConfig","type":"tuple","components":[
+                {"name":"validityPeriodInSeconds","type":"uint256"},
+                {"name":"domain","type":"string"},
+                {"name":"scope","type":"string"},
+                {"name":"devMode","type":"bool"}
+            ]}
+        ]}
+    ]
+}]`
+
 // Config holds the parameters needed to submit census registrations.
 type Config struct {
 	RPCURL          string
 	PrivateKeyHex   string // funded wallet private key, hex without 0x prefix
-	ContractAddress string // ZKPassportCensus contract address on Sepolia
-	ChainID         int64  // 11155111 for Sepolia
+	ContractAddress string // ZKPassportCensus contract address
+	ChainID         int64  // e.g. 11155111 for Sepolia
+	DevMode         bool   // pass devMode=true in ServiceConfig for test proofs
 }
 
-// Submitter sends register(address,bytes,bytes32[]) transactions to a ZKPassportCensus contract.
-// The contract verifies the UltraHonk proof on-chain; the backend only relays it.
+// Submitter sends register(address, ProofVerificationParams) transactions to ZKPassportCensus.
+// The RootVerifier contract handles on-chain proof verification; no trusted backend required.
 type Submitter struct {
 	client   *ethclient.Client
 	key      *ecdsa.PrivateKey
 	from     common.Address
 	contract common.Address
 	chainID  *big.Int
-	args     abi.Arguments // (address, bytes, bytes32[]) for ABI encoding
-	selector [4]byte       // keccak256("register(address,bytes,bytes32[])")[0:4]
+	abi      abi.ABI
+	devMode  bool
 
 	nonceMu sync.Mutex
 	nonce   uint64
@@ -53,30 +127,11 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 	}
 	from := crypto.PubkeyToAddress(privateKey.PublicKey)
 	contract := common.HexToAddress(cfg.ContractAddress)
-	chainID := big.NewInt(cfg.ChainID)
 
-	addressTy, err := abi.NewType("address", "", nil)
+	parsedABI, err := abi.JSON(strings.NewReader(registerABIJSON))
 	if err != nil {
-		return nil, fmt.Errorf("build address abi type: %w", err)
+		return nil, fmt.Errorf("parse register ABI: %w", err)
 	}
-	bytesTy, err := abi.NewType("bytes", "", nil)
-	if err != nil {
-		return nil, fmt.Errorf("build bytes abi type: %w", err)
-	}
-	bytes32SliceTy, err := abi.NewType("bytes32[]", "", nil)
-	if err != nil {
-		return nil, fmt.Errorf("build bytes32[] abi type: %w", err)
-	}
-	args := abi.Arguments{
-		{Type: addressTy},
-		{Type: bytesTy},
-		{Type: bytes32SliceTy},
-	}
-
-	// Function selector: keccak256("register(address,bytes,bytes32[])")[0:4]
-	sig := crypto.Keccak256([]byte("register(address,bytes,bytes32[])"))
-	var selector [4]byte
-	copy(selector[:], sig[:4])
 
 	nonce, err := client.PendingNonceAt(ctx, from)
 	if err != nil {
@@ -88,23 +143,40 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 		key:      privateKey,
 		from:     from,
 		contract: contract,
-		chainID:  chainID,
-		args:     args,
-		selector: selector,
+		chainID:  big.NewInt(cfg.ChainID),
+		abi:      parsedABI,
+		devMode:  cfg.DevMode,
 		nonce:    nonce,
 	}, nil
 }
 
-// Register submits a register(address, proof, publicInputs) transaction to the census
-// contract. The contract verifies the UltraHonk outer proof on-chain.
+// Register submits a register(address, ProofVerificationParams) transaction to ZKPassportCensus.
 //
-//   - account:      voter's Ethereum address (hex, e.g. "0xABCD...")
-//   - proof:        outer proof hex string from the prover-cli (with or without 0x prefix)
-//   - publicInputs: 8 hex strings, each representing a bytes32 field element
-//
-// Returns the transaction hash on success.
-func (s *Submitter) Register(ctx context.Context, account, proof string, publicInputs []string) (string, error) {
+//   - account:      voter's Ethereum address (hex, "0xABCD...")
+//   - proof:        outer proof hex string from the prover-cli (with or without 0x)
+//   - vkeyHash:     verification key hash hex string
+//   - publicInputs: hex-encoded bytes32 public inputs from the outer proof
+//   - version:      version string from the aggregate response (e.g. "0.18.0")
+//   - scope:        service scope string (e.g. "vocdoni")
+//   - domain:       service domain (e.g. "passport.vocdoni.io")
+//   - bindChain:    chain name used in bind_evm circuit (e.g. "ethereum_sepolia")
+func (s *Submitter) Register(
+	ctx context.Context,
+	account, proof, vkeyHash string,
+	publicInputs []string,
+	version, scope, domain, bindChain string,
+) (string, error) {
 	addr := common.HexToAddress(account)
+
+	versionBytes, err := encodeVersion(version)
+	if err != nil {
+		return "", fmt.Errorf("encode version: %w", err)
+	}
+
+	vkeyHashBytes, err := decodeBytes32(vkeyHash)
+	if err != nil {
+		return "", fmt.Errorf("decode vkeyHash: %w", err)
+	}
 
 	proofBytes, err := decodeHex(proof)
 	if err != nil {
@@ -116,11 +188,31 @@ func (s *Submitter) Register(ctx context.Context, account, proof string, publicI
 		return "", fmt.Errorf("decode public inputs: %w", err)
 	}
 
-	packed, err := s.args.Pack(addr, proofBytes, pi)
+	committedInputs, err := buildBindEvmCommittedInputs(account, bindChain)
+	if err != nil {
+		return "", fmt.Errorf("build committedInputs: %w", err)
+	}
+
+	params := proofVerificationParamsABI{
+		Version: versionBytes,
+		ProofVerificationData: proofVerificationDataABI{
+			VkeyHash:     vkeyHashBytes,
+			Proof:        proofBytes,
+			PublicInputs: pi,
+		},
+		CommittedInputs: committedInputs,
+		ServiceConfig: serviceConfigABI{
+			ValidityPeriodInSeconds: big.NewInt(validityPeriodInSeconds),
+			Domain:                  domain,
+			Scope:                   scope,
+			DevMode:                 s.devMode,
+		},
+	}
+
+	callData, err := s.abi.Pack("register", addr, params)
 	if err != nil {
 		return "", fmt.Errorf("abi pack: %w", err)
 	}
-	callData := append(s.selector[:], packed...)
 
 	gasTipCap, err := s.client.SuggestGasTipCap(ctx)
 	if err != nil {
@@ -132,7 +224,7 @@ func (s *Submitter) Register(ctx context.Context, account, proof string, publicI
 	}
 	gasFeeCap := new(big.Int).Add(gasTipCap, new(big.Int).Mul(header.BaseFee, big.NewInt(2)))
 
-	// Use a higher gas limit: UltraHonk verification uses ~500k–1M gas.
+	// ZKPassport RootVerifier + on-chain proof verification: allow ~1.5M gas.
 	const verifyGasLimit = 1_500_000
 
 	s.nonceMu.Lock()
@@ -173,6 +265,83 @@ func (s *Submitter) FromAddress() string {
 	return s.from.Hex()
 }
 
+// encodeVersion converts "0.18.0" to a bytes32 version identifier.
+// Each component is encoded as 2 big-endian bytes, right-padded to 32 bytes.
+func encodeVersion(version string) ([32]byte, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return [32]byte{}, fmt.Errorf("invalid version %q: expected major.minor.patch", version)
+	}
+	var result [32]byte
+	for i, p := range parts {
+		n, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			return [32]byte{}, fmt.Errorf("invalid version component %q: %w", p, err)
+		}
+		result[i*2] = byte(n >> 8)
+		result[i*2+1] = byte(n)
+	}
+	return result, nil
+}
+
+// buildBindEvmCommittedInputs constructs the 512-byte committedInputs for a bind_evm proof.
+// Layout: [ProofType.BIND (1)] [length=509 (2)] [formatBoundData right-padded to 509 bytes]
+// Only address + chainId are encoded — no private passport data.
+func buildBindEvmCommittedInputs(signerAddress, bindChain string) ([]byte, error) {
+	addrHex := strings.TrimPrefix(signerAddress, "0x")
+	if len(addrHex) < 40 {
+		addrHex = strings.Repeat("0", 40-len(addrHex)) + addrHex
+	}
+	if len(addrHex) != 40 {
+		return nil, fmt.Errorf("invalid address %q", signerAddress)
+	}
+	addrBytes, err := hex.DecodeString(addrHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode address: %w", err)
+	}
+
+	chainID, ok := chainIDs[bindChain]
+	if !ok {
+		return nil, fmt.Errorf("unknown bindChain %q", bindChain)
+	}
+	chainIDBytes := minimalBigEndian(chainID)
+
+	// TLV-encoded bound data (matches @zkpassport/utils formatBoundData)
+	var data []byte
+	// USER_ADDRESS: [0x01, 0x00, 0x14, ...20 bytes]
+	data = append(data, boundDataUserAddress, 0x00, byte(len(addrBytes)))
+	data = append(data, addrBytes...)
+	// CHAIN_ID: [0x02, 0x00, len, ...chainIdBytes]
+	data = append(data, boundDataChainID, 0x00, byte(len(chainIDBytes)))
+	data = append(data, chainIDBytes...)
+
+	if len(data) > int(bindEvmLength) {
+		return nil, fmt.Errorf("formatBoundData too long: %d > %d", len(data), bindEvmLength)
+	}
+
+	// Right-pad to bindEvmLength (509) bytes
+	payload := make([]byte, bindEvmLength)
+	copy(payload, data)
+
+	// Prepend header: [ProofType.BIND] [length (2 bytes big-endian)]
+	result := make([]byte, 3+int(bindEvmLength))
+	result[0] = proofTypeBind
+	binary.BigEndian.PutUint16(result[1:3], bindEvmLength)
+	copy(result[3:], payload)
+
+	return result, nil
+}
+
+// minimalBigEndian encodes n as big-endian bytes with no leading zeros (minimum 1 byte).
+func minimalBigEndian(n uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, n)
+	for len(b) > 1 && b[0] == 0 {
+		b = b[1:]
+	}
+	return b
+}
+
 // decodeHex decodes a hex string (with or without 0x prefix) to bytes.
 func decodeHex(h string) ([]byte, error) {
 	h = strings.TrimPrefix(h, "0x")
@@ -183,23 +352,33 @@ func decodeHex(h string) ([]byte, error) {
 	return b, nil
 }
 
-// decodePublicInputs converts a slice of hex strings to [][32]byte for ABI encoding.
+// decodeBytes32 decodes a hex string to a [32]byte, left-padding if needed.
+func decodeBytes32(h string) ([32]byte, error) {
+	h = strings.TrimPrefix(h, "0x")
+	if len(h) < 64 {
+		h = strings.Repeat("0", 64-len(h)) + h
+	}
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	if len(b) > 32 {
+		return [32]byte{}, fmt.Errorf("value exceeds 32 bytes (%d bytes)", len(b))
+	}
+	var result [32]byte
+	copy(result[32-len(b):], b)
+	return result, nil
+}
+
+// decodePublicInputs converts hex strings to [][32]byte for ABI encoding.
 func decodePublicInputs(inputs []string) ([][32]byte, error) {
 	result := make([][32]byte, len(inputs))
 	for i, s := range inputs {
-		s = strings.TrimPrefix(s, "0x")
-		// Pad to 64 hex chars (32 bytes) if needed
-		if len(s) < 64 {
-			s = strings.Repeat("0", 64-len(s)) + s
-		}
-		b, err := hex.DecodeString(s)
+		b32, err := decodeBytes32(s)
 		if err != nil {
 			return nil, fmt.Errorf("public input [%d]: %w", i, err)
 		}
-		if len(b) != 32 {
-			return nil, fmt.Errorf("public input [%d]: expected 32 bytes, got %d", i, len(b))
-		}
-		copy(result[i][:], b)
+		result[i] = b32
 	}
 	return result, nil
 }
