@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -351,6 +352,8 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 }
 
 // extractServiceFields pulls scope, domain, and bindChain from the original QR request payload.
+// If service.domain is absent, falls back to the hostname of aggregateUrl — the passport app
+// infers the domain the same way when baking it into the proof.
 func extractServiceFields(req map[string]any) (scope, domain, bindChain string) {
 	if req == nil {
 		return
@@ -360,6 +363,13 @@ func extractServiceFields(req map[string]any) (scope, domain, bindChain string) 
 		domain, _ = svc["domain"].(string)
 	}
 	bindChain, _ = req["bindChain"].(string)
+	if domain == "" {
+		if aggURL, ok := req["aggregateUrl"].(string); ok && aggURL != "" {
+			if u, err := url.Parse(aggURL); err == nil {
+				domain = u.Hostname()
+			}
+		}
+	}
 	return
 }
 
