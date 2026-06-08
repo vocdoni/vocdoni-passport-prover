@@ -730,7 +730,7 @@ fn main() -> Result<()> {
                 proof: bytes_to_hex(&proof.proof),
                 public_inputs: public_inputs.clone(),
                 vkey_hash: outer_circuit.vkey_hash.clone(),
-                nullifier: public_inputs.last().cloned(),
+                nullifier: outer_nullifier(&public_inputs),
                 metadata,
             };
             fs::write(
@@ -843,7 +843,7 @@ fn main() -> Result<()> {
                 proof: bytes_to_hex(&proof.proof),
                 public_inputs: public_inputs.clone(),
                 vkey_hash: outer_circuit.vkey_hash.clone(),
-                nullifier: public_inputs.last().cloned(),
+                nullifier: outer_nullifier(&public_inputs),
                 metadata,
             };
 
@@ -1176,6 +1176,22 @@ fn split_hex_fields(bytes: &[u8]) -> Result<Vec<String>> {
         .collect())
 }
 
+/// Extract the scoped nullifier from the outer circuit's public inputs.
+///
+/// The outer (`outer_evm_count_N`) public inputs end with
+/// `[..., nullifier_type, scoped_nullifier, oprf_pk_hash]` — the nullifier is the
+/// SECOND-TO-LAST field. Before circuits 0.18.0 the nullifier was the trailing
+/// field (so `.last()` worked), but 0.18.0 appended `oprf_pk_hash`, which is zero
+/// unless OPRF/facematch is used; `.last()` therefore returns a zero nullifier.
+/// Matches `@zkpassport/utils` `getNullifierFromOuterProof` = `publicInputs[len - 2]`.
+fn outer_nullifier(public_inputs: &[String]) -> Option<String> {
+    public_inputs
+        .len()
+        .checked_sub(2)
+        .and_then(|i| public_inputs.get(i))
+        .cloned()
+}
+
 fn bytes_to_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -1320,4 +1336,63 @@ fn persist_proof_artifacts(
         )
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a representative outer (`outer_evm_count_N`) public-input vector whose
+    /// trailing fields are `[..., nullifier_type, scoped_nullifier, oprf_pk_hash]`.
+    fn sample_outer_public_inputs() -> Vec<String> {
+        vec![
+            "0xcertificate_registry_root".to_string(),
+            "0xcircuit_registry_root".to_string(),
+            "0xcurrent_date".to_string(),
+            "0xservice_scope".to_string(),
+            "0xservice_subscope".to_string(),
+            "0xparam_commitment_0".to_string(),
+            // nullifier_type (len - 3)
+            "0x0000000000000000000000000000000000000000000000000000000000000002".to_string(),
+            // scoped_nullifier (len - 2) — the value we want
+            "0x00000000000000000000000000000000000000000000000000000000deadbeef".to_string(),
+            // oprf_pk_hash (len - 1) — zero unless OPRF/facematch is used
+            "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        ]
+    }
+
+    #[test]
+    fn nullifier_is_second_to_last_not_last() {
+        let public_inputs = sample_outer_public_inputs();
+        let nullifier = outer_nullifier(&public_inputs);
+
+        // Must be the scoped_nullifier (second-to-last), not the trailing oprf_pk_hash.
+        assert_eq!(
+            nullifier.as_deref(),
+            Some("0x00000000000000000000000000000000000000000000000000000000deadbeef"),
+            "nullifier must be public_inputs[len-2] (scoped_nullifier)"
+        );
+
+        // Regression guard: the old `.last()` returned the zero oprf_pk_hash.
+        assert_ne!(
+            nullifier,
+            public_inputs.last().cloned(),
+            "nullifier must not be the trailing oprf_pk_hash (the 0.18.0 regression)"
+        );
+        assert_eq!(
+            public_inputs.last().map(String::as_str),
+            Some("0x0000000000000000000000000000000000000000000000000000000000000000"),
+            "sanity: the trailing field (oprf_pk_hash) is zero here"
+        );
+    }
+
+    #[test]
+    fn outer_nullifier_handles_short_inputs() {
+        assert_eq!(outer_nullifier(&[]), None);
+        assert_eq!(outer_nullifier(&["0xonly".to_string()]), None);
+        assert_eq!(
+            outer_nullifier(&["0xnullifier".to_string(), "0xoprf".to_string()]).as_deref(),
+            Some("0xnullifier"),
+        );
+    }
 }
