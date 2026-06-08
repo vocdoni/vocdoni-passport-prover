@@ -214,10 +214,14 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract nullifier and signer address from inner proofs BEFORE expensive aggregation
-	// The nullifier is at publicInputs[6] of disclosure proofs (scoped_nullifier)
-	// The signer address is at publicInputs[7] of bind_evm circuit
 	nullifier := extractNullifierFromDisclosures(req.Disclosures)
 	signerAddress := extractSignerAddressFromDisclosures(req.Disclosures)
+	// Fall back to walletAddress from the request payload when no bind circuit is present.
+	if signerAddress == "" && req.Request != nil {
+		if wa, ok := req.Request["walletAddress"].(string); ok && wa != "" {
+			signerAddress = wa
+		}
+	}
 
 	logEvent := s.logger.Info().
 		Str("version", req.Version).
