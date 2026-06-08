@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -352,24 +351,30 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 }
 
 // extractServiceFields pulls scope, domain, and bindChain from the original QR request payload.
-// If service.domain is absent, falls back to the hostname of aggregateUrl — the passport app
-// infers the domain the same way when baking it into the proof.
+//
+// The Vocdoni Passport app circuit mapping:
+//   - publicInputs[SCOPE_INDEX=3]    = getServiceScopeHash(service.scope)
+//   - publicInputs[SUBSCOPE_INDEX=4] = getServiceSubscopeHash("petition")  // hardcoded
+//
+// The on-chain verifier checks sha256(serviceConfig.domain) against SCOPE_INDEX and
+// sha256(serviceConfig.scope) against SUBSCOPE_INDEX. So:
+//   - serviceConfig.domain must equal service.scope from the QR payload
+//   - serviceConfig.scope must equal "petition" (hardcoded by the app)
 func extractServiceFields(req map[string]any) (scope, domain, bindChain string) {
 	if req == nil {
 		return
 	}
 	if svc, ok := req["service"].(map[string]any); ok {
-		scope, _ = svc["scope"].(string)
-		domain, _ = svc["domain"].(string)
-	}
-	bindChain, _ = req["bindChain"].(string)
-	if domain == "" {
-		if aggURL, ok := req["aggregateUrl"].(string); ok && aggURL != "" {
-			if u, err := url.Parse(aggURL); err == nil {
-				domain = u.Hostname()
-			}
+		// service.scope is what the app passes as the circuit domain hash preimage.
+		domain, _ = svc["scope"].(string)
+		// "petition" is hardcoded by the app as the circuit subscope; allow explicit override.
+		if sub, _ := svc["subscope"].(string); sub != "" {
+			scope = sub
+		} else {
+			scope = "petition"
 		}
 	}
+	bindChain, _ = req["bindChain"].(string)
 	return
 }
 
