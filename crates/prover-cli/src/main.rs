@@ -730,7 +730,8 @@ fn main() -> Result<()> {
                 proof: bytes_to_hex(&proof.proof),
                 public_inputs: public_inputs.clone(),
                 vkey_hash: outer_circuit.vkey_hash.clone(),
-                nullifier: public_inputs.last().cloned(),
+                // scoped_nullifier is second-to-last; last() is oprf_pk_hash (added in 0.18.0).
+                nullifier: public_inputs.get(public_inputs.len().saturating_sub(2)).cloned(),
                 metadata,
             };
             fs::write(
@@ -843,7 +844,8 @@ fn main() -> Result<()> {
                 proof: bytes_to_hex(&proof.proof),
                 public_inputs: public_inputs.clone(),
                 vkey_hash: outer_circuit.vkey_hash.clone(),
-                nullifier: public_inputs.last().cloned(),
+                // scoped_nullifier is second-to-last; last() is oprf_pk_hash (added in 0.18.0).
+                nullifier: public_inputs.get(public_inputs.len().saturating_sub(2)).cloned(),
                 metadata,
             };
 
