@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -405,6 +406,7 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logger.Info().
 			Int("committed_inputs_bytes", len(committedInputs)).
+			Str("committed_inputs_hex", hex.EncodeToString(committedInputs)).
 			Msg("committedInputs built successfully")
 
 		{

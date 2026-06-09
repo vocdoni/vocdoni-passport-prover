@@ -3,6 +3,7 @@ package census
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -84,7 +85,17 @@ func BuildCommittedInputs(disclosures []DisclosureProof, outerPublicInputs []str
 			return nil, fmt.Errorf("serialize committedInputs for %s: %w", matched.CircuitName, err)
 		}
 		result = append(result, serialized...)
-		log.Printf("[census] matched param_commitment %s → %s (%d bytes)", pc, matched.CircuitName, len(serialized))
+
+		// Diagnostic: verify our serialized bytes hash to the expected param_commitment.
+		h := sha256.Sum256(serialized)
+		// param_commitment = sha256(bytes) >> 8: treat as big-endian, drop the last (least-significant) byte
+		computed := make([]byte, 32)
+		copy(computed[1:], h[:31]) // shift right by 8 bits: b0→pos1, b31 dropped, pos0=0
+		computedHex := hex.EncodeToString(computed)
+		pcNormFull := strings.ToLower(strings.TrimPrefix(pc, "0x"))
+		match := computedHex == pcNormFull
+		log.Printf("[census] param_commitment %s → %s (%d bytes) | sha256>>8=%s | match=%v | first32hex=%s",
+			pc, matched.CircuitName, len(serialized), computedHex, match, hex.EncodeToString(serialized[:min(32, len(serialized))]))
 	}
 	return result, nil
 }
