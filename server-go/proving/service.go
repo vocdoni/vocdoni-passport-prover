@@ -85,6 +85,8 @@ type AggregateResponse struct {
 	Metadata          map[string]string `json:"metadata,omitempty"`
 	TxHash            string            `json:"txHash,omitempty"`
 	RegisteredAddress string            `json:"registeredAddress,omitempty"`
+	// CommittedInputsHex is the serialized TLV committedInputs blob for on-chain verification.
+	CommittedInputsHex string `json:"committedInputsHex,omitempty"`
 }
 
 type aggregateCLIResponse struct {

@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -344,149 +343,26 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Submit census registration if configured.
-	// The RootVerifier contract verifies the outer ZKPassport proof on-chain.
-	if s.censusSubmitter != nil && signerAddress != "" && resp.Proof != "" && len(resp.PublicInputs) > 0 {
-		scope, domain := extractServiceFields(req.Request)
-
-		// Log the outer public inputs so we can verify param_commitments sit at [5..len-3).
-		s.logger.Info().
-			Int("outer_pi_count", len(resp.PublicInputs)).
-			Strs("outer_public_inputs", resp.PublicInputs).
-			Msg("outer proof public inputs (param_commitments at indices [5..len-3))")
-
-		// Build committedInputs for each disclosure circuit.
-		// Priority order:
-		//   1. Raw bytes from inner proof (mobile app sent hex-encoded bytes)
-		//   2. Top-level req.CommittedInputs[circuitName] (vocdoni-passport v1.0.5 format)
-		//   3. Per-inner-proof structured map
-		//   4. Synthesise: bind_evm → address-only; disclose_bytes_evm → all-zeros
-		if len(req.CommittedInputs) > 0 {
-			s.logger.Info().
-				Int("top_level_ci_count", len(req.CommittedInputs)).
-				Msg("top-level committedInputs present in request")
-		}
-		disclosures := make([]census.DisclosureProof, len(req.Disclosures))
-		for i, d := range req.Disclosures {
-			pi4 := ""
-			if len(d.PublicInputs) > 4 {
-				pi4 = d.PublicInputs[4]
-			}
-
-			dp := census.DisclosureProof{
-				CircuitName:     d.CircuitName,
-				ParamCommitment: pi4,
-			}
-
-			// Priority 1: raw bytes from inner proof (hex string committedInputs)
-			if rawBytes := d.CommittedInputsHex(); len(rawBytes) > 0 {
-				dp.RawBytes = rawBytes
-				s.logger.Info().
-					Int("index", i).
-					Str("circuit", d.CircuitName).
-					Int("raw_bytes", len(rawBytes)).
-					Msg("using raw committedInputs bytes from inner proof")
-			} else if ciMap := d.CommittedInputsMap(); len(ciMap) > 0 {
-				// Priority 3: per-inner-proof structured map
-				dp.CommittedInputs = ciMap
-				s.logger.Info().
-					Int("index", i).
-					Str("circuit", d.CircuitName).
-					Int("fields", len(ciMap)).
-					Msg("using structured committedInputs from inner proof")
-			} else if topCI, ok := req.CommittedInputs[d.CircuitName]; ok && len(topCI) > 0 {
-				// Priority 2: top-level committedInputs keyed by circuit name
-				var ciMap map[string]any
-				if err := json.Unmarshal(topCI, &ciMap); err == nil && len(ciMap) > 0 {
-					dp.CommittedInputs = ciMap
-					s.logger.Info().
-						Int("index", i).
-						Str("circuit", d.CircuitName).
-						Int("fields", len(ciMap)).
-						Msg("using top-level committedInputs from request")
-				} else {
-					// Top-level entry might be raw hex bytes too
-					var hexStr string
-					if json.Unmarshal(topCI, &hexStr) == nil {
-						hexStr = strings.TrimPrefix(hexStr, "0x")
-						if b, err := hex.DecodeString(hexStr); err == nil && len(b) > 0 {
-							dp.RawBytes = b
-							s.logger.Info().
-								Int("index", i).
-								Str("circuit", d.CircuitName).
-								Int("raw_bytes", len(b)).
-								Msg("using top-level raw committedInputs hex from request")
-						}
-					}
-				}
-			}
-
-			// Priority 4: synthesise if nothing was provided
-			if len(dp.RawBytes) == 0 && len(dp.CommittedInputs) == 0 {
-				if d.CircuitName == "bind_evm" && signerAddress != "" {
-					dp.CommittedInputs = map[string]any{
-						"data": map[string]any{
-							"user_address": signerAddress,
-						},
-					}
-					s.logger.Info().
-						Str("circuit", d.CircuitName).
-						Str("signer_address", signerAddress).
-						Msg("synthesising bind_evm committedInputs from address (address-only, no chain)")
-				} else {
-					s.logger.Info().
-						Int("index", i).
-						Str("circuit", d.CircuitName).
-						Msg("no committedInputs provided — using empty map (all-zeros for disclose)")
-				}
-			}
-
-			disclosures[i] = dp
-			s.logger.Info().
-				Int("index", i).
-				Str("circuit", d.CircuitName).
-				Str("param_commitment", pi4).
-				Bool("has_raw_bytes", len(dp.RawBytes) > 0).
-				Int("committed_inputs_fields", len(dp.CommittedInputs)).
-				Msg("disclosure proof for committedInputs build")
-		}
-		committedInputs, ciErr := census.BuildCommittedInputs(disclosures, resp.PublicInputs)
-		if ciErr != nil {
+	// The backend has already verified the zkPassport outer proof off-chain.
+	// TrustedCensus only needs (account, nullifier) — no on-chain proof data required.
+	if s.censusSubmitter != nil && signerAddress != "" && resp.Nullifier != "" {
+		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier)
+		if censusErr != nil {
 			s.logger.Error().
-				Err(ciErr).
+				Err(censusErr).
+				Str("nullifier", resp.Nullifier).
 				Str("signer_address", signerAddress).
-				Msg("failed to build committedInputs — skipping census TX to avoid on-chain revert with nil data")
-			goto doneRegistration
-		}
-		s.logger.Info().
-			Int("committed_inputs_bytes", len(committedInputs)).
-			Str("committed_inputs_hex", hex.EncodeToString(committedInputs)).
-			Msg("committedInputs built successfully")
-
-		{
-			txHash, censusErr := s.censusSubmitter.Register(
-				r.Context(),
-				signerAddress, resp.Proof, resp.VkeyHash, resp.PublicInputs,
-				committedInputs,
-				resp.Version, scope, domain,
-			)
-			if censusErr != nil {
-				s.logger.Error().
-					Err(censusErr).
-					Str("nullifier", resp.Nullifier).
-					Str("signer_address", signerAddress).
-					Msg("census registration tx failed (proof aggregated and nullifier saved)")
-			} else {
-				resp.TxHash = txHash
-				resp.RegisteredAddress = signerAddress
-				s.logger.Info().
-					Str("tx_hash", txHash).
-					Str("registered_address", signerAddress).
-					Str("nullifier", resp.Nullifier).
-					Msg("census registration tx submitted")
-			}
+				Msg("census registration tx failed (proof aggregated and nullifier saved)")
+		} else {
+			resp.TxHash = txHash
+			resp.RegisteredAddress = signerAddress
+			s.logger.Info().
+				Str("tx_hash", txHash).
+				Str("registered_address", signerAddress).
+				Str("nullifier", resp.Nullifier).
+				Msg("census registration tx submitted")
 		}
 	}
-doneRegistration:
 
 	s.logger.Info().
 		Str("proof_name", resp.Name).
