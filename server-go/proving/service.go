@@ -2,6 +2,7 @@ package proving
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,33 +18,75 @@ import (
 )
 
 type InnerProof struct {
-	CircuitName  string   `json:"circuitName"`
-	Proof        []string `json:"proof"`
-	PublicInputs []string `json:"publicInputs"`
-	Vkey         []string `json:"vkey,omitempty"`
-	KeyHash      string   `json:"keyHash"`
-	TreeHashPath []string `json:"treeHashPath"`
-	TreeIndex    string   `json:"treeIndex"`
+	CircuitName     string          `json:"circuitName"`
+	Proof           []string        `json:"proof"`
+	PublicInputs    []string        `json:"publicInputs"`
+	Vkey            []string        `json:"vkey,omitempty"`
+	KeyHash         string          `json:"keyHash"`
+	TreeHashPath    []string        `json:"treeHashPath"`
+	TreeIndex       string          `json:"treeIndex"`
+	CommittedInputs json.RawMessage `json:"committedInputs,omitempty"`
+}
+
+// CommittedInputsMap returns the committed inputs parsed as a map.
+// The mobile app may send them as a JSON object (map) or a hex-encoded bytes string.
+// If a hex string, we return an empty map (the caller can handle raw bytes separately).
+func (p *InnerProof) CommittedInputsMap() map[string]any {
+	if len(p.CommittedInputs) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(p.CommittedInputs, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// CommittedInputsHex returns the committed inputs as raw bytes if the value is a hex string,
+// otherwise returns nil.
+func (p *InnerProof) CommittedInputsHex() []byte {
+	if len(p.CommittedInputs) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(p.CommittedInputs, &s); err != nil {
+		return nil
+	}
+	s = strings.TrimPrefix(s, "0x")
+	if len(s) == 0 || len(s)%2 != 0 {
+		return nil
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 type AggregateRequest struct {
-	Version     string         `json:"version"`
-	CurrentDate int64          `json:"currentDate"`
-	DSC         InnerProof     `json:"dsc"`
-	IDData      InnerProof     `json:"idData"`
-	Integrity   InnerProof     `json:"integrity"`
-	Disclosures []InnerProof   `json:"disclosures"`
-	Request     map[string]any `json:"request,omitempty"`
+	Version          string                     `json:"version"`
+	CurrentDate      int64                      `json:"currentDate"`
+	DSC              InnerProof                 `json:"dsc"`
+	IDData           InnerProof                 `json:"idData"`
+	Integrity        InnerProof                 `json:"integrity"`
+	Disclosures      []InnerProof               `json:"disclosures"`
+	Request          map[string]any             `json:"request,omitempty"`
+	// Top-level committedInputs keyed by circuit name (vocdoni-passport v1.0.5 sends them here).
+	CommittedInputs  map[string]json.RawMessage `json:"committedInputs,omitempty"`
 }
 
 type AggregateResponse struct {
-	Version      string            `json:"version"`
-	Name         string            `json:"name"`
-	Proof        string            `json:"proof"`
-	PublicInputs []string          `json:"publicInputs"`
-	VkeyHash     string            `json:"vkeyHash"`
-	Nullifier    string            `json:"nullifier,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
+	Version           string            `json:"version"`
+	Name              string            `json:"name"`
+	Proof             string            `json:"proof"`
+	PublicInputs      []string          `json:"publicInputs"`
+	VkeyHash          string            `json:"vkeyHash"`
+	Nullifier         string            `json:"nullifier,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	TxHash            string            `json:"txHash,omitempty"`
+	RegisteredAddress string            `json:"registeredAddress,omitempty"`
+	// CommittedInputsHex is the serialized TLV committedInputs blob for on-chain verification.
+	CommittedInputsHex string `json:"committedInputsHex,omitempty"`
 }
 
 type aggregateCLIResponse struct {
@@ -168,6 +211,16 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		cmd.Dir = s.workspaceRoot
 	}
 
+	disclosureNames := make([]string, len(req.Disclosures))
+	disclosurePILens := make([]int, len(req.Disclosures))
+	disclosurePI4s := make([]string, len(req.Disclosures))
+	for i, d := range req.Disclosures {
+		disclosureNames[i] = d.CircuitName
+		disclosurePILens[i] = len(d.PublicInputs)
+		if len(d.PublicInputs) > 4 {
+			disclosurePI4s[i] = d.PublicInputs[4]
+		}
+	}
 	s.logger.Info().
 		Str("prover_binary", s.proverBinaryPath).
 		Str("bb_binary", s.bbBinaryPath).
@@ -184,6 +237,9 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		Str("id_data_circuit", req.IDData.CircuitName).
 		Str("integrity_circuit", req.Integrity.CircuitName).
 		Int("disclosures", len(req.Disclosures)).
+		Strs("disclosure_circuits", disclosureNames).
+		Ints("disclosure_pi_counts", disclosurePILens).
+		Strs("disclosure_pi4_param_commitments", disclosurePI4s).
 		Msg("starting aggregate prover command")
 
 	output, err := cmd.CombinedOutput()
@@ -207,6 +263,7 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 	if err != nil {
 		return nil, fmt.Errorf("read aggregate response file: %w", err)
 	}
+	s.logger.Debug().RawJSON("prover_cli_raw_output", raw).Msg("prover-cli raw output")
 	var cliResponse aggregateCLIResponse
 	if err := json.Unmarshal(raw, &cliResponse); err != nil {
 		return nil, fmt.Errorf("decode aggregate response: %w", err)
@@ -231,7 +288,8 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		Str("proof_name", response.Name).
 		Str("version", response.Version).
 		Str("nullifier", response.Nullifier).
-		Int("public_inputs", len(response.PublicInputs)).
+		Int("public_inputs_count", len(response.PublicInputs)).
+		Strs("public_inputs", response.PublicInputs).
 		Str("vkey_hash", response.VkeyHash).
 		Msg("aggregate prover command succeeded")
 	return &response, nil

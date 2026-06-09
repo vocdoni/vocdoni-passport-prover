@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/api"
+	"github.com/vocdoni/vocdoni-passport-prover/server-go/census"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/proving"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/storage"
 )
@@ -111,6 +112,10 @@ func main() {
 	mongoURI := envOrDefault("VOCDONI_MONGODB_URI", "")
 	mongoDatabase := envOrDefault("VOCDONI_MONGODB_DATABASE", "vocdoni_passport")
 
+	censusRPCURL := envOrDefault("VOCDONI_CENSUS_RPC_URL", "")
+	censusPrivateKey := envOrDefault("VOCDONI_CENSUS_PRIVATE_KEY", "")
+	censusChainID := int64(envIntOrDefault("VOCDONI_CENSUS_CHAIN_ID", 11155111))
+
 	logger.Info().
 		Str("listen_addr", *listenAddr).
 		Str("public_base_url", envOrDefault("VOCDONI_PUBLIC_BASE_URL", "")).
@@ -163,7 +168,26 @@ func main() {
 		MaxConcurrency:   *proverMaxConcurrency,
 	}, logger)
 
-	server := api.NewServer(*listenAddr, provingService, db, *apkPath, logger)
+	var censusSubmitter *census.Submitter
+	if censusPrivateKey != "" {
+		var censusErr error
+		censusSubmitter, censusErr = census.NewSubmitter(context.Background(), census.Config{
+			RPCURL:        censusRPCURL,
+			PrivateKeyHex: censusPrivateKey,
+			ChainID:       censusChainID,
+		})
+		if censusErr != nil {
+			logger.Fatal().Err(censusErr).Msg("failed to initialize census submitter")
+		}
+		logger.Info().
+			Str("from_address", censusSubmitter.FromAddress()).
+			Int64("chain_id", censusChainID).
+			Msg("census submitter initialized (contract address per-request)")
+	} else {
+		logger.Warn().Msg("VOCDONI_CENSUS_PRIVATE_KEY not set, census registration disabled")
+	}
+
+	server := api.NewServer(*listenAddr, provingService, db, censusSubmitter, *apkPath, logger)
 
 	errCh := make(chan error, 1)
 	go func() {

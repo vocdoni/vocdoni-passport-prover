@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/rs/zerolog"
 	qrcode "github.com/skip2/go-qrcode"
+	"github.com/vocdoni/vocdoni-passport-prover/server-go/census"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/presets"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/proving"
 	"github.com/vocdoni/vocdoni-passport-prover/server-go/storage"
@@ -37,21 +41,23 @@ func resolveVersion() string {
 }
 
 type Server struct {
-	httpServer     *http.Server
-	logger         zerolog.Logger
-	provingService *proving.Service
-	storage        *storage.MongoDB
-	apkPath        string
-	version        string
+	httpServer      *http.Server
+	logger          zerolog.Logger
+	provingService  *proving.Service
+	storage         *storage.MongoDB
+	censusSubmitter *census.Submitter
+	apkPath         string
+	version         string
 }
 
-func NewServer(listenAddr string, provingService *proving.Service, db *storage.MongoDB, apkPath string, logger zerolog.Logger) *Server {
+func NewServer(listenAddr string, provingService *proving.Service, db *storage.MongoDB, censusSubmitter *census.Submitter, apkPath string, logger zerolog.Logger) *Server {
 	s := &Server{
-		logger:         logger.With().Str("component", "http").Logger(),
-		provingService: provingService,
-		storage:        db,
-		apkPath:        strings.TrimSpace(apkPath),
-		version:        resolveVersion(),
+		logger:          logger.With().Str("component", "http").Logger(),
+		provingService:  provingService,
+		storage:         db,
+		censusSubmitter: censusSubmitter,
+		apkPath:         strings.TrimSpace(apkPath),
+		version:         resolveVersion(),
 	}
 
 	mux := http.NewServeMux()
@@ -191,11 +197,18 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "read request body: "+err.Error())
+		return
+	}
+	log.Printf("handleAggregateProofs raw body:\n%s\n\n", bodyBytes)
 	var req proving.AggregateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
+	log.Printf("handleAggregateProofs decoded req:\n%+v\n\n", req)
 
 	var petitionID string
 	var petition *storage.Petition
@@ -211,10 +224,33 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract nullifier and signer address from inner proofs BEFORE expensive aggregation
-	// The nullifier is at publicInputs[6] of disclosure proofs (scoped_nullifier)
-	// The signer address is at publicInputs[7] of bind_evm circuit
 	nullifier := extractNullifierFromDisclosures(req.Disclosures)
 	signerAddress := extractSignerAddressFromDisclosures(req.Disclosures)
+	// Fall back to walletAddress from the request payload when no bind circuit is present.
+	if signerAddress == "" && req.Request != nil {
+		if wa, ok := req.Request["walletAddress"].(string); ok && wa != "" {
+			signerAddress = wa
+		}
+	}
+
+	// Debug: log each inner disclosure circuit name and publicInputs[4] (param_commitment).
+	for i, d := range req.Disclosures {
+		pi4 := ""
+		if len(d.PublicInputs) > 4 {
+			pi4 = d.PublicInputs[4]
+		}
+		pi7 := ""
+		if len(d.PublicInputs) > 7 {
+			pi7 = d.PublicInputs[7]
+		}
+		s.logger.Info().
+			Int("disclosure_index", i).
+			Str("circuit_name", d.CircuitName).
+			Int("num_public_inputs", len(d.PublicInputs)).
+			Str("param_commitment_pi4", pi4).
+			Str("pi7", pi7).
+			Msg("disclosure inner proof")
+	}
 
 	logEvent := s.logger.Info().
 		Str("version", req.Version).
@@ -306,6 +342,35 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Submit census registration if configured.
+	// The backend has already verified the zkPassport outer proof off-chain.
+	// TrustedCensus only needs (account, nullifier) — no on-chain proof data required.
+	if s.censusSubmitter != nil && signerAddress != "" && resp.Nullifier != "" {
+		// Use per-election contract from QR payload if present, else fall back to default.
+		censusContractOverride := ""
+		if req.Request != nil {
+			if cc, ok := req.Request["censusContract"].(string); ok {
+				censusContractOverride = strings.TrimSpace(cc)
+			}
+		}
+		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier, censusContractOverride)
+		if censusErr != nil {
+			s.logger.Error().
+				Err(censusErr).
+				Str("nullifier", resp.Nullifier).
+				Str("signer_address", signerAddress).
+				Msg("census registration tx failed (proof aggregated and nullifier saved)")
+		} else {
+			resp.TxHash = txHash
+			resp.RegisteredAddress = signerAddress
+			s.logger.Info().
+				Str("tx_hash", txHash).
+				Str("registered_address", signerAddress).
+				Str("nullifier", resp.Nullifier).
+				Msg("census registration tx submitted")
+		}
+	}
+
 	s.logger.Info().
 		Str("proof_name", resp.Name).
 		Str("version", resp.Version).
@@ -315,6 +380,33 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		Strs("disclosed_fields", disclosedFields).
 		Msg("aggregate request completed")
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// extractServiceFields pulls scope and domain from the original QR request payload.
+//
+// The Vocdoni Passport app circuit mapping:
+//   - publicInputs[SCOPE_INDEX=3]    = getServiceScopeHash(service.scope)
+//   - publicInputs[SUBSCOPE_INDEX=4] = getServiceSubscopeHash("petition")  // hardcoded
+//
+// The on-chain verifier checks sha256(serviceConfig.domain) against SCOPE_INDEX and
+// sha256(serviceConfig.scope) against SUBSCOPE_INDEX. So:
+//   - serviceConfig.domain must equal service.scope from the QR payload
+//   - serviceConfig.scope must equal "petition" (hardcoded by the app)
+func extractServiceFields(req map[string]any) (scope, domain string) {
+	if req == nil {
+		return
+	}
+	if svc, ok := req["service"].(map[string]any); ok {
+		// service.scope is what the app passes as the circuit domain hash preimage.
+		domain, _ = svc["scope"].(string)
+		// "petition" is hardcoded by the app as the circuit subscope; allow explicit override.
+		if sub, _ := svc["subscope"].(string); sub != "" {
+			scope = sub
+		} else {
+			scope = "petition"
+		}
+	}
+	return
 }
 
 func collectDisclosedFieldsFromQuery(query map[string]any) []string {

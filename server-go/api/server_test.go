@@ -17,7 +17,7 @@ import (
 
 func TestHealthEndpoint(t *testing.T) {
 	logger := zerolog.Nop()
-	server := NewServer(":0", nil, nil, "", logger)
+	server := NewServer(":0", nil, nil, nil, "", logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	w := httptest.NewRecorder()
