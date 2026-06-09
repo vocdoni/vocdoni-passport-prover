@@ -171,6 +171,16 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		cmd.Dir = s.workspaceRoot
 	}
 
+	disclosureNames := make([]string, len(req.Disclosures))
+	disclosurePILens := make([]int, len(req.Disclosures))
+	disclosurePI4s := make([]string, len(req.Disclosures))
+	for i, d := range req.Disclosures {
+		disclosureNames[i] = d.CircuitName
+		disclosurePILens[i] = len(d.PublicInputs)
+		if len(d.PublicInputs) > 4 {
+			disclosurePI4s[i] = d.PublicInputs[4]
+		}
+	}
 	s.logger.Info().
 		Str("prover_binary", s.proverBinaryPath).
 		Str("bb_binary", s.bbBinaryPath).
@@ -187,6 +197,9 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		Str("id_data_circuit", req.IDData.CircuitName).
 		Str("integrity_circuit", req.Integrity.CircuitName).
 		Int("disclosures", len(req.Disclosures)).
+		Strs("disclosure_circuits", disclosureNames).
+		Ints("disclosure_pi_counts", disclosurePILens).
+		Strs("disclosure_pi4_param_commitments", disclosurePI4s).
 		Msg("starting aggregate prover command")
 
 	output, err := cmd.CombinedOutput()
@@ -210,6 +223,7 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 	if err != nil {
 		return nil, fmt.Errorf("read aggregate response file: %w", err)
 	}
+	s.logger.Debug().RawJSON("prover_cli_raw_output", raw).Msg("prover-cli raw output")
 	var cliResponse aggregateCLIResponse
 	if err := json.Unmarshal(raw, &cliResponse); err != nil {
 		return nil, fmt.Errorf("decode aggregate response: %w", err)
@@ -234,7 +248,8 @@ func (s *Service) Aggregate(ctx context.Context, req AggregateRequest) (*Aggrega
 		Str("proof_name", response.Name).
 		Str("version", response.Version).
 		Str("nullifier", response.Nullifier).
-		Int("public_inputs", len(response.PublicInputs)).
+		Int("public_inputs_count", len(response.PublicInputs)).
+		Strs("public_inputs", response.PublicInputs).
 		Str("vkey_hash", response.VkeyHash).
 		Msg("aggregate prover command succeeded")
 	return &response, nil

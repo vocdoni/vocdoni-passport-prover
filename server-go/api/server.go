@@ -347,51 +347,91 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	if s.censusSubmitter != nil && signerAddress != "" && resp.Proof != "" && len(resp.PublicInputs) > 0 {
 		scope, domain := extractServiceFields(req.Request)
 
-		// Build committedInputs from the inner disclosure proofs sent by the mobile app.
-		// Each inner proof carries its own committedInputs (address/mask/bytes) that only
-		// the passport app knows — we must not reconstruct them independently.
+		// Log the outer public inputs so we can verify param_commitments sit at [5..len-3).
+		s.logger.Info().
+			Int("outer_pi_count", len(resp.PublicInputs)).
+			Strs("outer_public_inputs", resp.PublicInputs).
+			Msg("outer proof public inputs (param_commitments at indices [5..len-3))")
+
+		// Build committedInputs from the inner disclosure proofs.
+		// The mobile app does NOT send committedInputs, so we reconstruct:
+		//   disclose_bytes_evm with empty map  → all-zero mask/data (correct for zero disclosures)
+		//   bind_evm with empty map            → reconstructed from signerAddress + bindChain
+		bindChain := ""
+		if req.Request != nil {
+			if bc, ok := req.Request["bindChain"].(string); ok {
+				bindChain = bc
+			}
+		}
 		disclosures := make([]census.DisclosureProof, len(req.Disclosures))
 		for i, d := range req.Disclosures {
 			pi4 := ""
 			if len(d.PublicInputs) > 4 {
 				pi4 = d.PublicInputs[4]
 			}
+			ci := d.CommittedInputs
+			if d.CircuitName == "bind_evm" && len(ci) == 0 && signerAddress != "" && bindChain != "" {
+				ci = map[string]any{
+					"data": map[string]any{
+						"user_address": signerAddress,
+						"chain":        bindChain,
+					},
+				}
+				s.logger.Info().
+					Str("circuit", d.CircuitName).
+					Str("signer_address", signerAddress).
+					Str("bind_chain", bindChain).
+					Msg("synthesising bind_evm committedInputs from public data")
+			}
 			disclosures[i] = census.DisclosureProof{
 				CircuitName:     d.CircuitName,
-				CommittedInputs: d.CommittedInputs,
+				CommittedInputs: ci,
 				ParamCommitment: pi4,
 			}
+			s.logger.Info().
+				Int("index", i).
+				Str("circuit", d.CircuitName).
+				Str("param_commitment", pi4).
+				Int("committed_inputs_fields", len(ci)).
+				Msg("disclosure proof for committedInputs build")
 		}
 		committedInputs, ciErr := census.BuildCommittedInputs(disclosures, resp.PublicInputs)
 		if ciErr != nil {
 			s.logger.Error().
 				Err(ciErr).
 				Str("signer_address", signerAddress).
-				Msg("failed to build committedInputs from inner proofs")
+				Msg("failed to build committedInputs — skipping census TX to avoid on-chain revert with nil data")
+			goto doneRegistration
 		}
+		s.logger.Info().
+			Int("committed_inputs_bytes", len(committedInputs)).
+			Msg("committedInputs built successfully")
 
-		txHash, censusErr := s.censusSubmitter.Register(
-			r.Context(),
-			signerAddress, resp.Proof, resp.VkeyHash, resp.PublicInputs,
-			committedInputs,
-			resp.Version, scope, domain,
-		)
-		if censusErr != nil {
-			s.logger.Error().
-				Err(censusErr).
-				Str("nullifier", resp.Nullifier).
-				Str("signer_address", signerAddress).
-				Msg("census registration tx failed (proof aggregated and nullifier saved)")
-		} else {
-			resp.TxHash = txHash
-			resp.RegisteredAddress = signerAddress
-			s.logger.Info().
-				Str("tx_hash", txHash).
-				Str("registered_address", signerAddress).
-				Str("nullifier", resp.Nullifier).
-				Msg("census registration tx submitted")
+		{
+			txHash, censusErr := s.censusSubmitter.Register(
+				r.Context(),
+				signerAddress, resp.Proof, resp.VkeyHash, resp.PublicInputs,
+				committedInputs,
+				resp.Version, scope, domain,
+			)
+			if censusErr != nil {
+				s.logger.Error().
+					Err(censusErr).
+					Str("nullifier", resp.Nullifier).
+					Str("signer_address", signerAddress).
+					Msg("census registration tx failed (proof aggregated and nullifier saved)")
+			} else {
+				resp.TxHash = txHash
+				resp.RegisteredAddress = signerAddress
+				s.logger.Info().
+					Str("tx_hash", txHash).
+					Str("registered_address", signerAddress).
+					Str("nullifier", resp.Nullifier).
+					Msg("census registration tx submitted")
+			}
 		}
 	}
+doneRegistration:
 
 	s.logger.Info().
 		Str("proof_name", resp.Name).

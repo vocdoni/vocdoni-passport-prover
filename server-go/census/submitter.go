@@ -122,7 +122,18 @@ func serializeBindEvmInputs(ci map[string]any) ([]byte, error) {
 }
 
 // serializeDiscloseEvmInputs serializes { discloseMask: [...], disclosedBytes: [...] } → 183 bytes.
+// When ci is empty (mobile app sends no committedInputs for zero-disclosure proofs), the mask and
+// data are all zeros, which is the correct encoding when no fields are explicitly disclosed.
 func serializeDiscloseEvmInputs(ci map[string]any) ([]byte, error) {
+	buf := make([]byte, 1+2+int(discloseEvmLength)) // 183 bytes
+	buf[0] = proofTypeDisclose
+	binary.BigEndian.PutUint16(buf[1:3], discloseEvmLength)
+
+	if len(ci) == 0 {
+		// No disclosures: mask and disclosedBytes are all zeros.
+		return buf, nil
+	}
+
 	maskRaw, _ := ci["discloseMask"].([]any)
 	bytesRaw, _ := ci["disclosedBytes"].([]any)
 	if len(maskRaw) != 90 {
@@ -131,10 +142,6 @@ func serializeDiscloseEvmInputs(ci map[string]any) ([]byte, error) {
 	if len(bytesRaw) != 90 {
 		return nil, fmt.Errorf("disclose_bytes_evm disclosedBytes must be 90 bytes, got %d", len(bytesRaw))
 	}
-
-	buf := make([]byte, 1+2+int(discloseEvmLength)) // 183 bytes
-	buf[0] = proofTypeDisclose
-	binary.BigEndian.PutUint16(buf[1:3], discloseEvmLength)
 	for i, v := range maskRaw {
 		f, ok := v.(float64)
 		if !ok {
