@@ -3,9 +3,11 @@ package census
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"math/big"
 	"strconv"
 	"strings"
@@ -191,6 +193,21 @@ func (s *Submitter) Register(
 	committedInputs, err := buildBindEvmCommittedInputs(account, bindChain)
 	if err != nil {
 		return "", fmt.Errorf("build committedInputs: %w", err)
+	}
+
+	// Debug: log committedInputs SHA256>>8 vs outer proof's param_commitments (publicInputs[5..N-4]).
+	h := sha256.Sum256(committedInputs)
+	debugHash := "00" + hex.EncodeToString(h[:31]) // SHA256 >> 8 (first 31 bytes, zero-prefixed)
+	log.Printf("[debug] committedInputs hex prefix: %x", committedInputs[:min(32, len(committedInputs))])
+	log.Printf("[debug] committedInputs SHA256>>8:   %s", debugHash)
+	if len(publicInputs) > 5 {
+		// param_commitments are at indices [5..len-4)
+		end := len(publicInputs) - 3
+		log.Printf("[debug] outer proof param_commitments (publicInputs[5..%d]):", end)
+		for i := 5; i < end; i++ {
+			match := publicInputs[i] == debugHash || strings.TrimPrefix(publicInputs[i], "0x") == strings.TrimPrefix(debugHash, "0x")
+			log.Printf("[debug]   publicInputs[%d] = %s  match=%v", i, publicInputs[i], match)
+		}
 	}
 
 	params := proofVerificationParamsABI{

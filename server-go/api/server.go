@@ -223,6 +223,25 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Debug: log each inner disclosure circuit name and publicInputs[4] (param_commitment).
+	for i, d := range req.Disclosures {
+		pi4 := ""
+		if len(d.PublicInputs) > 4 {
+			pi4 = d.PublicInputs[4]
+		}
+		pi7 := ""
+		if len(d.PublicInputs) > 7 {
+			pi7 = d.PublicInputs[7]
+		}
+		s.logger.Info().
+			Int("disclosure_index", i).
+			Str("circuit_name", d.CircuitName).
+			Int("num_public_inputs", len(d.PublicInputs)).
+			Str("param_commitment_pi4", pi4).
+			Str("pi7", pi7).
+			Msg("disclosure inner proof")
+	}
+
 	logEvent := s.logger.Info().
 		Str("version", req.Version).
 		Str("dsc_circuit", req.DSC.CircuitName).
