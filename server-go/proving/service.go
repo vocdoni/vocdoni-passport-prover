@@ -17,13 +17,14 @@ import (
 )
 
 type InnerProof struct {
-	CircuitName  string   `json:"circuitName"`
-	Proof        []string `json:"proof"`
-	PublicInputs []string `json:"publicInputs"`
-	Vkey         []string `json:"vkey,omitempty"`
-	KeyHash      string   `json:"keyHash"`
-	TreeHashPath []string `json:"treeHashPath"`
-	TreeIndex    string   `json:"treeIndex"`
+	CircuitName     string         `json:"circuitName"`
+	Proof           []string       `json:"proof"`
+	PublicInputs    []string       `json:"publicInputs"`
+	Vkey            []string       `json:"vkey,omitempty"`
+	KeyHash         string         `json:"keyHash"`
+	TreeHashPath    []string       `json:"treeHashPath"`
+	TreeIndex       string         `json:"treeIndex"`
+	CommittedInputs map[string]any `json:"committedInputs,omitempty"`
 }
 
 type AggregateRequest struct {

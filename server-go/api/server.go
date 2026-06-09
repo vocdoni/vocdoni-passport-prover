@@ -338,11 +338,36 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	// Submit census registration if configured.
 	// The RootVerifier contract verifies the outer ZKPassport proof on-chain.
 	if s.censusSubmitter != nil && signerAddress != "" && resp.Proof != "" && len(resp.PublicInputs) > 0 {
-		scope, domain, bindChain := extractServiceFields(req.Request)
+		scope, domain := extractServiceFields(req.Request)
+
+		// Build committedInputs from the inner disclosure proofs sent by the mobile app.
+		// Each inner proof carries its own committedInputs (address/mask/bytes) that only
+		// the passport app knows — we must not reconstruct them independently.
+		disclosures := make([]census.DisclosureProof, len(req.Disclosures))
+		for i, d := range req.Disclosures {
+			pi4 := ""
+			if len(d.PublicInputs) > 4 {
+				pi4 = d.PublicInputs[4]
+			}
+			disclosures[i] = census.DisclosureProof{
+				CircuitName:     d.CircuitName,
+				CommittedInputs: d.CommittedInputs,
+				ParamCommitment: pi4,
+			}
+		}
+		committedInputs, ciErr := census.BuildCommittedInputs(disclosures, resp.PublicInputs)
+		if ciErr != nil {
+			s.logger.Error().
+				Err(ciErr).
+				Str("signer_address", signerAddress).
+				Msg("failed to build committedInputs from inner proofs")
+		}
+
 		txHash, censusErr := s.censusSubmitter.Register(
 			r.Context(),
 			signerAddress, resp.Proof, resp.VkeyHash, resp.PublicInputs,
-			resp.Version, scope, domain, bindChain,
+			committedInputs,
+			resp.Version, scope, domain,
 		)
 		if censusErr != nil {
 			s.logger.Error().
@@ -372,7 +397,7 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// extractServiceFields pulls scope, domain, and bindChain from the original QR request payload.
+// extractServiceFields pulls scope and domain from the original QR request payload.
 //
 // The Vocdoni Passport app circuit mapping:
 //   - publicInputs[SCOPE_INDEX=3]    = getServiceScopeHash(service.scope)
@@ -382,7 +407,7 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 // sha256(serviceConfig.scope) against SUBSCOPE_INDEX. So:
 //   - serviceConfig.domain must equal service.scope from the QR payload
 //   - serviceConfig.scope must equal "petition" (hardcoded by the app)
-func extractServiceFields(req map[string]any) (scope, domain, bindChain string) {
+func extractServiceFields(req map[string]any) (scope, domain string) {
 	if req == nil {
 		return
 	}
@@ -396,7 +421,6 @@ func extractServiceFields(req map[string]any) (scope, domain, bindChain string) 
 			scope = "petition"
 		}
 	}
-	bindChain, _ = req["bindChain"].(string)
 	return
 }
 

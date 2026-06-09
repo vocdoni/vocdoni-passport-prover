@@ -3,7 +3,6 @@ package census
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -20,17 +19,138 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-// ProofType.BIND = 8 from @zkpassport/utils
-const proofTypeBind = uint8(8)
+// ProofType constants from @zkpassport/utils
+const (
+	proofTypeDisclose = uint8(0)
+	proofTypeBind     = uint8(8)
+)
 
-// ProofTypeLength[BIND].evm = 509 from @zkpassport/utils
-const bindEvmLength = uint16(509)
+// ProofTypeLength[X].evm constants from @zkpassport/utils
+const (
+	discloseEvmLength = uint16(180) // 90 bytes discloseMask + 90 bytes disclosedBytes
+	bindEvmLength     = uint16(509)
+)
 
 // BoundDataIdentifier from @zkpassport/utils
 const (
 	boundDataUserAddress = uint8(1)
 	boundDataChainID     = uint8(2)
 )
+
+// DisclosureProof carries the committedInputs and param_commitment from one inner disclosure proof.
+// This is populated from the mobile app's per-proof committedInputs field.
+type DisclosureProof struct {
+	CircuitName     string
+	CommittedInputs map[string]any
+	ParamCommitment string // publicInputs[4] of the inner proof, hex string
+}
+
+// BuildCommittedInputs serializes the committed inputs for all disclosure circuits and
+// returns them concatenated in the order matching the outer proof's param_commitments.
+//
+// outerPublicInputs are the public inputs from the outer proof; param_commitments sit at
+// indices [5..len-3) — one per disclosure circuit.
+//
+// Each disclosure's CommittedInputs map comes directly from the zkPassport mobile app
+// (the "committedInputs" field on each inner disclosure proof).
+func BuildCommittedInputs(disclosures []DisclosureProof, outerPublicInputs []string) ([]byte, error) {
+	if len(outerPublicInputs) < 6 {
+		return nil, fmt.Errorf("outer proof has too few public inputs (%d)", len(outerPublicInputs))
+	}
+	// param_commitments occupy indices 5..len-3 (exclusive), one per disclosure circuit.
+	end := len(outerPublicInputs) - 3
+	if end <= 5 {
+		return nil, fmt.Errorf("no param_commitments found in outer public inputs (len=%d)", len(outerPublicInputs))
+	}
+	paramCommitments := outerPublicInputs[5:end]
+
+	// For each param_commitment, find the matching disclosure by its inner publicInputs[4].
+	var result []byte
+	for _, pc := range paramCommitments {
+		pcNorm := strings.ToLower(strings.TrimPrefix(pc, "0x"))
+		var matched *DisclosureProof
+		for i := range disclosures {
+			inner := strings.ToLower(strings.TrimPrefix(disclosures[i].ParamCommitment, "0x"))
+			if inner == pcNorm {
+				matched = &disclosures[i]
+				break
+			}
+		}
+		if matched == nil {
+			return nil, fmt.Errorf("no disclosure proof matches param_commitment %s", pc)
+		}
+		serialized, err := serializeCommittedInputs(matched.CircuitName, matched.CommittedInputs)
+		if err != nil {
+			return nil, fmt.Errorf("serialize committedInputs for %s: %w", matched.CircuitName, err)
+		}
+		result = append(result, serialized...)
+		log.Printf("[census] matched param_commitment %s → %s (%d bytes)", pc, matched.CircuitName, len(serialized))
+	}
+	return result, nil
+}
+
+// serializeCommittedInputs converts the per-circuit committedInputs map to the compact
+// on-chain byte format expected by the IZKPassportVerifier contract.
+//
+// Format: [ProofType(1)] [length(2 BE)] [payload(length bytes)]
+func serializeCommittedInputs(circuitName string, ci map[string]any) ([]byte, error) {
+	switch circuitName {
+	case "bind_evm":
+		return serializeBindEvmInputs(ci)
+	case "disclose_bytes_evm":
+		return serializeDiscloseEvmInputs(ci)
+	default:
+		return nil, fmt.Errorf("unsupported disclosure circuit %q", circuitName)
+	}
+}
+
+// serializeBindEvmInputs serializes { data: { user_address, chain } } → 512 bytes.
+func serializeBindEvmInputs(ci map[string]any) ([]byte, error) {
+	data, _ := ci["data"].(map[string]any)
+	if data == nil {
+		return nil, fmt.Errorf("bind_evm committedInputs missing 'data' object")
+	}
+	userAddress, _ := data["user_address"].(string)
+	if userAddress == "" {
+		return nil, fmt.Errorf("bind_evm committedInputs missing data.user_address")
+	}
+	chain, _ := data["chain"].(string)
+	if chain == "" {
+		return nil, fmt.Errorf("bind_evm committedInputs missing data.chain")
+	}
+	return buildBindEvmCommittedInputs(userAddress, chain)
+}
+
+// serializeDiscloseEvmInputs serializes { discloseMask: [...], disclosedBytes: [...] } → 183 bytes.
+func serializeDiscloseEvmInputs(ci map[string]any) ([]byte, error) {
+	maskRaw, _ := ci["discloseMask"].([]any)
+	bytesRaw, _ := ci["disclosedBytes"].([]any)
+	if len(maskRaw) != 90 {
+		return nil, fmt.Errorf("disclose_bytes_evm discloseMask must be 90 bytes, got %d", len(maskRaw))
+	}
+	if len(bytesRaw) != 90 {
+		return nil, fmt.Errorf("disclose_bytes_evm disclosedBytes must be 90 bytes, got %d", len(bytesRaw))
+	}
+
+	buf := make([]byte, 1+2+int(discloseEvmLength)) // 183 bytes
+	buf[0] = proofTypeDisclose
+	binary.BigEndian.PutUint16(buf[1:3], discloseEvmLength)
+	for i, v := range maskRaw {
+		f, ok := v.(float64)
+		if !ok {
+			return nil, fmt.Errorf("discloseMask[%d] is not a number", i)
+		}
+		buf[3+i] = byte(f)
+	}
+	for i, v := range bytesRaw {
+		f, ok := v.(float64)
+		if !ok {
+			return nil, fmt.Errorf("disclosedBytes[%d] is not a number", i)
+		}
+		buf[3+90+i] = byte(f)
+	}
+	return buf, nil
+}
 
 // validityPeriodInSeconds for the ZKPassport proof (24 hours).
 const validityPeriodInSeconds = 86400
@@ -154,19 +274,20 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 
 // Register submits a register(address, ProofVerificationParams) transaction to ZKPassportCensus.
 //
-//   - account:      voter's Ethereum address (hex, "0xABCD...")
-//   - proof:        outer proof hex string from the prover-cli (with or without 0x)
-//   - vkeyHash:     verification key hash hex string
-//   - publicInputs: hex-encoded bytes32 public inputs from the outer proof
-//   - version:      version string from the aggregate response (e.g. "0.18.0")
-//   - scope:        service scope string (e.g. "vocdoni")
-//   - domain:       service domain (e.g. "passport.vocdoni.io")
-//   - bindChain:    chain name used in bind_evm circuit (e.g. "ethereum_sepolia")
+//   - account:         voter's Ethereum address (hex, "0xABCD...")
+//   - proof:           outer proof hex string from the prover-cli (with or without 0x)
+//   - vkeyHash:        verification key hash hex string
+//   - publicInputs:    hex-encoded bytes32 public inputs from the outer proof
+//   - committedInputs: serialized committed inputs for all disclosure circuits (from BuildCommittedInputs)
+//   - version:         version string from the aggregate response (e.g. "0.18.0")
+//   - scope:           service scope string (e.g. "vocdoni")
+//   - domain:          service domain (e.g. "passport.vocdoni.io")
 func (s *Submitter) Register(
 	ctx context.Context,
 	account, proof, vkeyHash string,
 	publicInputs []string,
-	version, scope, domain, bindChain string,
+	committedInputs []byte,
+	version, scope, domain string,
 ) (string, error) {
 	addr := common.HexToAddress(account)
 
@@ -188,26 +309,6 @@ func (s *Submitter) Register(
 	pi, err := decodePublicInputs(publicInputs)
 	if err != nil {
 		return "", fmt.Errorf("decode public inputs: %w", err)
-	}
-
-	committedInputs, err := buildBindEvmCommittedInputs(account, bindChain)
-	if err != nil {
-		return "", fmt.Errorf("build committedInputs: %w", err)
-	}
-
-	// Debug: log committedInputs SHA256>>8 vs outer proof's param_commitments (publicInputs[5..N-4]).
-	h := sha256.Sum256(committedInputs)
-	debugHash := "00" + hex.EncodeToString(h[:31]) // SHA256 >> 8 (first 31 bytes, zero-prefixed)
-	log.Printf("[debug] committedInputs hex prefix: %x", committedInputs[:min(32, len(committedInputs))])
-	log.Printf("[debug] committedInputs SHA256>>8:   %s", debugHash)
-	if len(publicInputs) > 5 {
-		// param_commitments are at indices [5..len-4)
-		end := len(publicInputs) - 3
-		log.Printf("[debug] outer proof param_commitments (publicInputs[5..%d]):", end)
-		for i := 5; i < end; i++ {
-			match := publicInputs[i] == debugHash || strings.TrimPrefix(publicInputs[i], "0x") == strings.TrimPrefix(debugHash, "0x")
-			log.Printf("[debug]   publicInputs[%d] = %s  match=%v", i, publicInputs[i], match)
-		}
 	}
 
 	params := proofVerificationParamsABI{
