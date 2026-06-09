@@ -114,7 +114,6 @@ func main() {
 
 	censusRPCURL := envOrDefault("VOCDONI_CENSUS_RPC_URL", "")
 	censusPrivateKey := envOrDefault("VOCDONI_CENSUS_PRIVATE_KEY", "")
-	censusContract := envOrDefault("VOCDONI_CENSUS_CONTRACT", "")
 	censusChainID := int64(envIntOrDefault("VOCDONI_CENSUS_CHAIN_ID", 11155111))
 
 	logger.Info().
@@ -173,19 +172,17 @@ func main() {
 	if censusPrivateKey != "" {
 		var censusErr error
 		censusSubmitter, censusErr = census.NewSubmitter(context.Background(), census.Config{
-			RPCURL:          censusRPCURL,
-			PrivateKeyHex:   censusPrivateKey,
-			ContractAddress: censusContract,
-			ChainID:         censusChainID,
+			RPCURL:        censusRPCURL,
+			PrivateKeyHex: censusPrivateKey,
+			ChainID:       censusChainID,
 		})
 		if censusErr != nil {
 			logger.Fatal().Err(censusErr).Msg("failed to initialize census submitter")
 		}
 		logger.Info().
 			Str("from_address", censusSubmitter.FromAddress()).
-			Str("contract", censusContract).
 			Int64("chain_id", censusChainID).
-			Msg("census submitter initialized")
+			Msg("census submitter initialized (contract address per-request)")
 	} else {
 		logger.Warn().Msg("VOCDONI_CENSUS_PRIVATE_KEY not set, census registration disabled")
 	}

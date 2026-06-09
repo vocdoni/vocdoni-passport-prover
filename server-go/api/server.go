@@ -346,7 +346,14 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 	// The backend has already verified the zkPassport outer proof off-chain.
 	// TrustedCensus only needs (account, nullifier) — no on-chain proof data required.
 	if s.censusSubmitter != nil && signerAddress != "" && resp.Nullifier != "" {
-		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier)
+		// Use per-election contract from QR payload if present, else fall back to default.
+		censusContractOverride := ""
+		if req.Request != nil {
+			if cc, ok := req.Request["censusContract"].(string); ok {
+				censusContractOverride = strings.TrimSpace(cc)
+			}
+		}
+		txHash, censusErr := s.censusSubmitter.Register(r.Context(), signerAddress, resp.Nullifier, censusContractOverride)
 		if censusErr != nil {
 			s.logger.Error().
 				Err(censusErr).

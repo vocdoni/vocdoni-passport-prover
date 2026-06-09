@@ -27,22 +27,20 @@ const registerABIJSON = `[{
 
 // Config holds the parameters needed to submit census registrations.
 type Config struct {
-	RPCURL          string
-	PrivateKeyHex   string // funded wallet private key, hex without 0x prefix
-	ContractAddress string // TrustedCensus contract address
-	ChainID         int64  // e.g. 11155111 for Sepolia
+	RPCURL        string
+	PrivateKeyHex string // funded wallet private key, hex without 0x prefix
+	ChainID       int64  // e.g. 11155111 for Sepolia
 }
 
 // Submitter sends register(address, uint256) transactions to TrustedCensus.
 // The backend verifies the zkPassport outer proof off-chain; no on-chain proof
 // verification is needed, so gas usage is significantly lower.
 type Submitter struct {
-	client   *ethclient.Client
-	key      *ecdsa.PrivateKey
-	from     common.Address
-	contract common.Address
-	chainID  *big.Int
-	abi      abi.ABI
+	client  *ethclient.Client
+	key     *ecdsa.PrivateKey
+	from    common.Address
+	chainID *big.Int
+	abi     abi.ABI
 
 	nonceMu sync.Mutex
 	nonce   uint64
@@ -61,7 +59,6 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 		return nil, fmt.Errorf("parse private key: %w", err)
 	}
 	from := crypto.PubkeyToAddress(privateKey.PublicKey)
-	contract := common.HexToAddress(cfg.ContractAddress)
 
 	parsedABI, err := abi.JSON(strings.NewReader(registerABIJSON))
 	if err != nil {
@@ -74,21 +71,22 @@ func NewSubmitter(ctx context.Context, cfg Config) (*Submitter, error) {
 	}
 
 	return &Submitter{
-		client:   client,
-		key:      privateKey,
-		from:     from,
-		contract: contract,
-		chainID:  big.NewInt(cfg.ChainID),
-		abi:      parsedABI,
-		nonce:    nonce,
+		client:  client,
+		key:     privateKey,
+		from:    from,
+		chainID: big.NewInt(cfg.ChainID),
+		abi:     parsedABI,
+		nonce:   nonce,
 	}, nil
 }
 
 // Register submits a register(address, uint256) transaction to TrustedCensus.
 //
-//   - account:  voter's Ethereum address (hex, "0xABCD...")
-//   - nullifier: scoped nullifier from the outer proof public inputs (hex string "0x...")
-func (s *Submitter) Register(ctx context.Context, account, nullifier string) (string, error) {
+//   - account:         voter's Ethereum address (hex, "0xABCD...")
+//   - nullifier:       scoped nullifier from the outer proof public inputs (hex string "0x...")
+//   - contractAddress: per-election TrustedCensus address; falls back to the default
+//     address set in Config when empty.
+func (s *Submitter) Register(ctx context.Context, account, nullifier, contractAddress string) (string, error) {
 	addr := common.HexToAddress(account)
 
 	nullifierInt, err := parseNullifier(nullifier)
@@ -100,6 +98,12 @@ func (s *Submitter) Register(ctx context.Context, account, nullifier string) (st
 	if err != nil {
 		return "", fmt.Errorf("abi pack: %w", err)
 	}
+
+	contractAddress = strings.TrimSpace(contractAddress)
+	if contractAddress == "" {
+		return "", fmt.Errorf("censusContract not provided in request payload")
+	}
+	contract := common.HexToAddress(contractAddress)
 
 	gasTipCap, err := s.client.SuggestGasTipCap(ctx)
 	if err != nil {
@@ -123,7 +127,7 @@ func (s *Submitter) Register(ctx context.Context, account, nullifier string) (st
 		GasTipCap: gasTipCap,
 		GasFeeCap: gasFeeCap,
 		Gas:       registerGasLimit,
-		To:        &s.contract,
+		To:        &contract,
 		Data:      callData,
 	}
 
