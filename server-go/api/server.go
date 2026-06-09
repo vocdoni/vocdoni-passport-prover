@@ -357,13 +357,7 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		// Build committedInputs from the inner disclosure proofs.
 		// The mobile app does NOT send committedInputs, so we reconstruct:
 		//   disclose_bytes_evm with empty map  → all-zero mask/data (correct for zero disclosures)
-		//   bind_evm with empty map            → reconstructed from signerAddress + bindChain
-		bindChain := ""
-		if req.Request != nil {
-			if bc, ok := req.Request["bindChain"].(string); ok {
-				bindChain = bc
-			}
-		}
+		//   bind_evm with empty map            → address-only (app v1.0.5 does not commit chain)
 		disclosures := make([]census.DisclosureProof, len(req.Disclosures))
 		for i, d := range req.Disclosures {
 			pi4 := ""
@@ -371,18 +365,16 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 				pi4 = d.PublicInputs[4]
 			}
 			ci := d.CommittedInputs
-			if d.CircuitName == "bind_evm" && len(ci) == 0 && signerAddress != "" && bindChain != "" {
+			if d.CircuitName == "bind_evm" && len(ci) == 0 && signerAddress != "" {
 				ci = map[string]any{
 					"data": map[string]any{
 						"user_address": signerAddress,
-						"chain":        bindChain,
 					},
 				}
 				s.logger.Info().
 					Str("circuit", d.CircuitName).
 					Str("signer_address", signerAddress).
-					Str("bind_chain", bindChain).
-					Msg("synthesising bind_evm committedInputs from public data")
+					Msg("synthesising bind_evm committedInputs from address (address-only, no chain)")
 			}
 			disclosures[i] = census.DisclosureProof{
 				CircuitName:     d.CircuitName,

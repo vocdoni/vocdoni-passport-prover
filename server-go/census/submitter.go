@@ -32,11 +32,8 @@ const (
 	bindEvmLength     = uint16(509)
 )
 
-// BoundDataIdentifier from @zkpassport/utils
-const (
-	boundDataUserAddress = uint8(1)
-	boundDataChainID     = uint8(2)
-)
+// BoundDataIdentifier.USER_ADDRESS from @zkpassport/utils
+const boundDataUserAddress = uint8(1)
 
 // DisclosureProof carries the committedInputs and param_commitment from one inner disclosure proof.
 // This is populated from the mobile app's per-proof committedInputs field.
@@ -115,7 +112,8 @@ func serializeCommittedInputs(circuitName string, ci map[string]any) ([]byte, er
 	}
 }
 
-// serializeBindEvmInputs serializes { data: { user_address, chain } } → 512 bytes.
+// serializeBindEvmInputs serializes { data: { user_address } } → 512 bytes.
+// chain is not committed by the app (v1.0.5 binds address-only).
 func serializeBindEvmInputs(ci map[string]any) ([]byte, error) {
 	data, _ := ci["data"].(map[string]any)
 	if data == nil {
@@ -125,11 +123,7 @@ func serializeBindEvmInputs(ci map[string]any) ([]byte, error) {
 	if userAddress == "" {
 		return nil, fmt.Errorf("bind_evm committedInputs missing data.user_address")
 	}
-	chain, _ := data["chain"].(string)
-	if chain == "" {
-		return nil, fmt.Errorf("bind_evm committedInputs missing data.chain")
-	}
-	return buildBindEvmCommittedInputs(userAddress, chain)
+	return buildBindEvmCommittedInputs(userAddress)
 }
 
 // serializeDiscloseEvmInputs serializes { discloseMask: [...], disclosedBytes: [...] } → 183 bytes.
@@ -172,16 +166,6 @@ func serializeDiscloseEvmInputs(ci map[string]any) ([]byte, error) {
 
 // validityPeriodInSeconds for the ZKPassport proof (24 hours).
 const validityPeriodInSeconds = 86400
-
-// known EVM chain IDs, keyed by the chain string used in zkPassport QR payloads.
-var chainIDs = map[string]uint64{
-	"ethereum":         1,
-	"ethereum_mainnet": 1,
-	"ethereum_sepolia": 11155111,
-	"base":             8453,
-	"base_mainnet":     8453,
-	"base_sepolia":     84532,
-}
 
 // Go structs matching the ProofVerificationParams ABI tuple layout.
 // Field names are matched case-insensitively to ABI component names by go-ethereum.
@@ -422,8 +406,8 @@ func encodeVersion(version string) ([32]byte, error) {
 
 // buildBindEvmCommittedInputs constructs the 512-byte committedInputs for a bind_evm proof.
 // Layout: [ProofType.BIND (1)] [length=509 (2)] [formatBoundData right-padded to 509 bytes]
-// Only address + chainId are encoded — no private passport data.
-func buildBindEvmCommittedInputs(signerAddress, bindChain string) ([]byte, error) {
+// App v1.0.5 binds address-only — no CHAIN_ID TLV is included.
+func buildBindEvmCommittedInputs(signerAddress string) ([]byte, error) {
 	addrHex := strings.TrimPrefix(signerAddress, "0x")
 	if len(addrHex) < 40 {
 		addrHex = strings.Repeat("0", 40-len(addrHex)) + addrHex
@@ -436,24 +420,11 @@ func buildBindEvmCommittedInputs(signerAddress, bindChain string) ([]byte, error
 		return nil, fmt.Errorf("decode address: %w", err)
 	}
 
-	chainID, ok := chainIDs[bindChain]
-	if !ok {
-		return nil, fmt.Errorf("unknown bindChain %q", bindChain)
-	}
-	chainIDBytes := minimalBigEndian(chainID)
-
 	// TLV-encoded bound data (matches @zkpassport/utils formatBoundData)
-	var data []byte
 	// USER_ADDRESS: [0x01, 0x00, 0x14, ...20 bytes]
+	var data []byte
 	data = append(data, boundDataUserAddress, 0x00, byte(len(addrBytes)))
 	data = append(data, addrBytes...)
-	// CHAIN_ID: [0x02, 0x00, len, ...chainIdBytes]
-	data = append(data, boundDataChainID, 0x00, byte(len(chainIDBytes)))
-	data = append(data, chainIDBytes...)
-
-	if len(data) > int(bindEvmLength) {
-		return nil, fmt.Errorf("formatBoundData too long: %d > %d", len(data), bindEvmLength)
-	}
 
 	// Right-pad to bindEvmLength (509) bytes
 	payload := make([]byte, bindEvmLength)
@@ -466,16 +437,6 @@ func buildBindEvmCommittedInputs(signerAddress, bindChain string) ([]byte, error
 	copy(result[3:], payload)
 
 	return result, nil
-}
-
-// minimalBigEndian encodes n as big-endian bytes with no leading zeros (minimum 1 byte).
-func minimalBigEndian(n uint64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, n)
-	for len(b) > 1 && b[0] == 0 {
-		b = b[1:]
-	}
-	return b
 }
 
 // decodeHex decodes a hex string (with or without 0x prefix) to bytes.
