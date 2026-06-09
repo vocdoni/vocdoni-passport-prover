@@ -2,6 +2,7 @@ package proving
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,24 +18,61 @@ import (
 )
 
 type InnerProof struct {
-	CircuitName     string         `json:"circuitName"`
-	Proof           []string       `json:"proof"`
-	PublicInputs    []string       `json:"publicInputs"`
-	Vkey            []string       `json:"vkey,omitempty"`
-	KeyHash         string         `json:"keyHash"`
-	TreeHashPath    []string       `json:"treeHashPath"`
-	TreeIndex       string         `json:"treeIndex"`
-	CommittedInputs map[string]any `json:"committedInputs,omitempty"`
+	CircuitName     string          `json:"circuitName"`
+	Proof           []string        `json:"proof"`
+	PublicInputs    []string        `json:"publicInputs"`
+	Vkey            []string        `json:"vkey,omitempty"`
+	KeyHash         string          `json:"keyHash"`
+	TreeHashPath    []string        `json:"treeHashPath"`
+	TreeIndex       string          `json:"treeIndex"`
+	CommittedInputs json.RawMessage `json:"committedInputs,omitempty"`
+}
+
+// CommittedInputsMap returns the committed inputs parsed as a map.
+// The mobile app may send them as a JSON object (map) or a hex-encoded bytes string.
+// If a hex string, we return an empty map (the caller can handle raw bytes separately).
+func (p *InnerProof) CommittedInputsMap() map[string]any {
+	if len(p.CommittedInputs) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(p.CommittedInputs, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// CommittedInputsHex returns the committed inputs as raw bytes if the value is a hex string,
+// otherwise returns nil.
+func (p *InnerProof) CommittedInputsHex() []byte {
+	if len(p.CommittedInputs) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(p.CommittedInputs, &s); err != nil {
+		return nil
+	}
+	s = strings.TrimPrefix(s, "0x")
+	if len(s) == 0 || len(s)%2 != 0 {
+		return nil
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 type AggregateRequest struct {
-	Version     string         `json:"version"`
-	CurrentDate int64          `json:"currentDate"`
-	DSC         InnerProof     `json:"dsc"`
-	IDData      InnerProof     `json:"idData"`
-	Integrity   InnerProof     `json:"integrity"`
-	Disclosures []InnerProof   `json:"disclosures"`
-	Request     map[string]any `json:"request,omitempty"`
+	Version          string                     `json:"version"`
+	CurrentDate      int64                      `json:"currentDate"`
+	DSC              InnerProof                 `json:"dsc"`
+	IDData           InnerProof                 `json:"idData"`
+	Integrity        InnerProof                 `json:"integrity"`
+	Disclosures      []InnerProof               `json:"disclosures"`
+	Request          map[string]any             `json:"request,omitempty"`
+	// Top-level committedInputs keyed by circuit name (vocdoni-passport v1.0.5 sends them here).
+	CommittedInputs  map[string]json.RawMessage `json:"committedInputs,omitempty"`
 }
 
 type AggregateResponse struct {

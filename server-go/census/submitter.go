@@ -36,10 +36,12 @@ const (
 const boundDataUserAddress = uint8(1)
 
 // DisclosureProof carries the committedInputs and param_commitment from one inner disclosure proof.
-// This is populated from the mobile app's per-proof committedInputs field.
+// RawBytes takes priority: if set, it is used directly (the mobile app sent pre-serialized bytes).
+// Otherwise CommittedInputs (a structured map) is serialized per circuit.
 type DisclosureProof struct {
 	CircuitName     string
 	CommittedInputs map[string]any
+	RawBytes        []byte // pre-serialized committed input bytes (from mobile app hex string)
 	ParamCommitment string // publicInputs[4] of the inner proof, hex string
 }
 
@@ -77,9 +79,15 @@ func BuildCommittedInputs(disclosures []DisclosureProof, outerPublicInputs []str
 		if matched == nil {
 			return nil, fmt.Errorf("no disclosure proof matches param_commitment %s", pc)
 		}
-		serialized, err := serializeCommittedInputs(matched.CircuitName, matched.CommittedInputs)
-		if err != nil {
-			return nil, fmt.Errorf("serialize committedInputs for %s: %w", matched.CircuitName, err)
+		var serialized []byte
+		if len(matched.RawBytes) > 0 {
+			serialized = matched.RawBytes
+		} else {
+			var err error
+			serialized, err = serializeCommittedInputs(matched.CircuitName, matched.CommittedInputs)
+			if err != nil {
+				return nil, fmt.Errorf("serialize committedInputs for %s: %w", matched.CircuitName, err)
+			}
 		}
 		result = append(result, serialized...)
 
@@ -91,8 +99,12 @@ func BuildCommittedInputs(disclosures []DisclosureProof, outerPublicInputs []str
 		computedHex := hex.EncodeToString(computed)
 		pcNormFull := strings.ToLower(strings.TrimPrefix(pc, "0x"))
 		match := computedHex == pcNormFull
-		log.Printf("[census] param_commitment %s → %s (%d bytes) | sha256>>8=%s | match=%v | first32hex=%s",
-			pc, matched.CircuitName, len(serialized), computedHex, match, hex.EncodeToString(serialized[:min(32, len(serialized))]))
+		source := "serialized"
+		if len(matched.RawBytes) > 0 {
+			source = "raw_bytes"
+		}
+		log.Printf("[census] param_commitment %s → %s (%d bytes, source=%s) | sha256>>8=%s | match=%v | first32hex=%s",
+			pc, matched.CircuitName, len(serialized), source, computedHex, match, hex.EncodeToString(serialized[:min(32, len(serialized))]))
 	}
 	return result, nil
 }

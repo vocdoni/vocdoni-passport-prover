@@ -354,38 +354,99 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 			Strs("outer_public_inputs", resp.PublicInputs).
 			Msg("outer proof public inputs (param_commitments at indices [5..len-3))")
 
-		// Build committedInputs from the inner disclosure proofs.
-		// The mobile app does NOT send committedInputs, so we reconstruct:
-		//   disclose_bytes_evm with empty map  → all-zero mask/data (correct for zero disclosures)
-		//   bind_evm with empty map            → address-only (app v1.0.5 does not commit chain)
+		// Build committedInputs for each disclosure circuit.
+		// Priority order:
+		//   1. Raw bytes from inner proof (mobile app sent hex-encoded bytes)
+		//   2. Top-level req.CommittedInputs[circuitName] (vocdoni-passport v1.0.5 format)
+		//   3. Per-inner-proof structured map
+		//   4. Synthesise: bind_evm → address-only; disclose_bytes_evm → all-zeros
+		if len(req.CommittedInputs) > 0 {
+			s.logger.Info().
+				Int("top_level_ci_count", len(req.CommittedInputs)).
+				Msg("top-level committedInputs present in request")
+		}
 		disclosures := make([]census.DisclosureProof, len(req.Disclosures))
 		for i, d := range req.Disclosures {
 			pi4 := ""
 			if len(d.PublicInputs) > 4 {
 				pi4 = d.PublicInputs[4]
 			}
-			ci := d.CommittedInputs
-			if d.CircuitName == "bind_evm" && len(ci) == 0 && signerAddress != "" {
-				ci = map[string]any{
-					"data": map[string]any{
-						"user_address": signerAddress,
-					},
-				}
-				s.logger.Info().
-					Str("circuit", d.CircuitName).
-					Str("signer_address", signerAddress).
-					Msg("synthesising bind_evm committedInputs from address (address-only, no chain)")
-			}
-			disclosures[i] = census.DisclosureProof{
+
+			dp := census.DisclosureProof{
 				CircuitName:     d.CircuitName,
-				CommittedInputs: ci,
 				ParamCommitment: pi4,
 			}
+
+			// Priority 1: raw bytes from inner proof (hex string committedInputs)
+			if rawBytes := d.CommittedInputsHex(); len(rawBytes) > 0 {
+				dp.RawBytes = rawBytes
+				s.logger.Info().
+					Int("index", i).
+					Str("circuit", d.CircuitName).
+					Int("raw_bytes", len(rawBytes)).
+					Msg("using raw committedInputs bytes from inner proof")
+			} else if ciMap := d.CommittedInputsMap(); len(ciMap) > 0 {
+				// Priority 3: per-inner-proof structured map
+				dp.CommittedInputs = ciMap
+				s.logger.Info().
+					Int("index", i).
+					Str("circuit", d.CircuitName).
+					Int("fields", len(ciMap)).
+					Msg("using structured committedInputs from inner proof")
+			} else if topCI, ok := req.CommittedInputs[d.CircuitName]; ok && len(topCI) > 0 {
+				// Priority 2: top-level committedInputs keyed by circuit name
+				var ciMap map[string]any
+				if err := json.Unmarshal(topCI, &ciMap); err == nil && len(ciMap) > 0 {
+					dp.CommittedInputs = ciMap
+					s.logger.Info().
+						Int("index", i).
+						Str("circuit", d.CircuitName).
+						Int("fields", len(ciMap)).
+						Msg("using top-level committedInputs from request")
+				} else {
+					// Top-level entry might be raw hex bytes too
+					var hexStr string
+					if json.Unmarshal(topCI, &hexStr) == nil {
+						hexStr = strings.TrimPrefix(hexStr, "0x")
+						if b, err := hex.DecodeString(hexStr); err == nil && len(b) > 0 {
+							dp.RawBytes = b
+							s.logger.Info().
+								Int("index", i).
+								Str("circuit", d.CircuitName).
+								Int("raw_bytes", len(b)).
+								Msg("using top-level raw committedInputs hex from request")
+						}
+					}
+				}
+			}
+
+			// Priority 4: synthesise if nothing was provided
+			if len(dp.RawBytes) == 0 && len(dp.CommittedInputs) == 0 {
+				if d.CircuitName == "bind_evm" && signerAddress != "" {
+					dp.CommittedInputs = map[string]any{
+						"data": map[string]any{
+							"user_address": signerAddress,
+						},
+					}
+					s.logger.Info().
+						Str("circuit", d.CircuitName).
+						Str("signer_address", signerAddress).
+						Msg("synthesising bind_evm committedInputs from address (address-only, no chain)")
+				} else {
+					s.logger.Info().
+						Int("index", i).
+						Str("circuit", d.CircuitName).
+						Msg("no committedInputs provided — using empty map (all-zeros for disclose)")
+				}
+			}
+
+			disclosures[i] = dp
 			s.logger.Info().
 				Int("index", i).
 				Str("circuit", d.CircuitName).
 				Str("param_commitment", pi4).
-				Int("committed_inputs_fields", len(ci)).
+				Bool("has_raw_bytes", len(dp.RawBytes) > 0).
+				Int("committed_inputs_fields", len(dp.CommittedInputs)).
 				Msg("disclosure proof for committedInputs build")
 		}
 		committedInputs, ciErr := census.BuildCommittedInputs(disclosures, resp.PublicInputs)
