@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -195,9 +197,14 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("handleAggregateProofs r.Body:\n%s", r.Body)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "read request body: "+err.Error())
+		return
+	}
+	log.Printf("handleAggregateProofs raw body:\n%s", bodyBytes)
 	var req proving.AggregateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
