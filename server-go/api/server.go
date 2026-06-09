@@ -203,13 +203,13 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "read request body: "+err.Error())
 		return
 	}
-	log.Printf("handleAggregateProofs raw body:\n%s", bodyBytes)
+	log.Printf("handleAggregateProofs raw body:\n%s\n\n", bodyBytes)
 	var req proving.AggregateRequest
 	if err := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
-	log.Printf("handleAggregateProofs decoded req:\n%+v", req)
+	log.Printf("handleAggregateProofs decoded req:\n%+v\n\n", req)
 
 	var petitionID string
 	var petition *storage.Petition
