@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -194,11 +195,13 @@ func (s *Server) handleAggregateProofs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("handleAggregateProofs r.Body:\n%s", r.Body)
 	var req proving.AggregateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
+	log.Printf("handleAggregateProofs decoded req:\n%+v", req)
 
 	var petitionID string
 	var petition *storage.Petition
